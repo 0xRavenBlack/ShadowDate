@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=ShadowDate
+GenericName=Calendar
+Comment=A gothic dark-themed desktop calendar with iCalendar support
+Exec=shadowdate
+Icon=com.ravenblack.shadowdate
+Terminal=false
+Categories=Office;Calendar;GTK;
+Keywords=calendar;appointments;events;ics;icalendar;schedule;
+StartupNotify=true
+StartupWMClass=com.ravenblack.shadowdate

@@ -1,0 +1,347 @@
+/* Dark pastel theme for the calendar app.
+   Base: deep charcoal/indigo. Accents: lavender, mint, peach, pink, sky. */
+
+window {
+    background-color: #1b1b26;
+    color: #e6e6f0;
+    font-family: "Cantarell", "Noto Sans", sans-serif;
+}
+
+.headerbar,
+.titlebar {
+    background-color: #232333;
+    color: #e6e6f0;
+    border-bottom: 1px solid #2e2e44;
+}
+
+/* Branding (logo + title) in the headerbar */
+.brand-box {
+    margin-right: 6px;
+}
+
+.app-logo {
+    border-radius: 8px;
+}
+
+.brand-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #b39ddb;
+    margin-right: 4px;
+}
+
+/* Translucent portrait sitting behind the calendar content */
+.bg-portrait {
+    opacity: 0.30;
+}
+
+button {
+    background-color: #2c2c40;
+    color: #e6e6f0;
+    border: 1px solid #3a3a55;
+    border-radius: 8px;
+    padding: 6px 12px;
+    transition: background-color 150ms ease;
+}
+
+button:hover {
+    background-color: #3a3a55;
+}
+
+button.suggested-action {
+    background-color: #b39ddb;
+    color: #1b1b26;
+    border-color: #c9b6e8;
+    font-weight: 600;
+}
+
+button.suggested-action:hover {
+    background-color: #c9b6e8;
+}
+
+button.new-button {
+    background-color: #2f6b3a;
+    color: #eaf6ec;
+    border-color: #3f8a4e;
+    font-weight: 600;
+}
+
+button.new-button:hover {
+    background-color: #3a8048;
+}
+
+button.destructive-action {
+    background-color: #f4a3c0;
+    color: #2a1620;
+    border-color: #f7bcd4;
+}
+
+button.destructive-action:hover {
+    background-color: #f7bcd4;
+}
+
+button.delete-button {
+    background-color: #b23a3a;
+    color: #fdeef1;
+    border-color: #d24b4b;
+    font-weight: 600;
+    padding: 8px 18px;
+}
+
+button.delete-button:hover {
+    background-color: #cf4545;
+}
+
+button.exit-button {
+    background-color: #8e2b3a;
+    color: #fdeef1;
+    border-color: #b23a4d;
+    font-weight: 600;
+}
+
+button.exit-button:hover {
+    background-color: #a83245;
+}
+
+/* Month grid */
+.calendar-grid {
+    background-color: transparent;
+}
+
+.day-cell {
+    background-color: rgba(35, 35, 51, 0.72);
+    border: 1px solid rgba(46, 46, 68, 0.8);
+    border-radius: 10px;
+    padding: 6px;
+    color: #cfcfe6;
+}
+
+.day-cell:hover {
+    background-color: rgba(44, 44, 64, 0.85);
+}
+
+.day-cell.today {
+    border: 2px solid #a0e7c0;
+}
+
+.day-cell.selected {
+    background-color: rgba(47, 47, 71, 0.9);
+    border-color: #b39ddb;
+}
+
+.day-cell.other-month {
+    opacity: 0.35;
+}
+
+.day-number {
+    font-weight: 600;
+    font-size: 15px;
+    color: #e6e6f0;
+}
+
+.day-number.today-label {
+    color: #a0e7c0;
+}
+
+.weekday-header {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.weekday-header.weekday-workday {
+    color: #f4a3c0;
+}
+
+.weekday-header.weekend-header {
+    color: #f5e6a0;
+}
+
+/* Appointment chips */
+.appt-chip {
+    border-radius: 6px;
+    padding: 2px 6px;
+    margin: 1px 0;
+    font-size: 11px;
+    color: #1b1b26;
+}
+
+.appt-chip.c0 { background-color: #b39ddb; } /* lavender */
+.appt-chip.c1 { background-color: #a0e7c0; } /* mint */
+.appt-chip.c2 { background-color: #f6c79b; } /* peach */
+.appt-chip.c3 { background-color: #f4a3c0; } /* pink */
+.appt-chip.c4 { background-color: #a7c7e7; } /* sky */
+.appt-chip.c5 { background-color: #c7b6e8; } /* lilac */
+
+/* Side list */
+.list-box {
+    background-color: #1b1b26;
+}
+
+.appt-row {
+    background-color: #232333;
+    border: 1px solid #2e2e44;
+    border-left: 4px solid #b39ddb;
+    border-radius: 8px;
+    padding: 10px;
+    margin: 4px 0;
+    color: #e6e6f0;
+}
+
+.appt-row .appt-title {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.appt-row .appt-meta {
+    font-size: 12px;
+    color: #9a9ab8;
+}
+
+.appt-row:hover {
+    background-color: #2c2c40;
+}
+
+.empty-label {
+    color: #6a6a88;
+    font-style: italic;
+}
+
+/* Form dialog */
+.appt-form {
+    background-color: #1b1b26;
+}
+
+.form-heading {
+    font-size: 22px;
+    font-weight: 700;
+    color: #e6e6f0;
+    margin-bottom: 2px;
+}
+
+.form-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #b39ddb;
+    margin-top: 4px;
+    letter-spacing: 0.4px;
+}
+
+.form-section {
+    background-color: #232333;
+    border: 1px solid #2e2e44;
+    border-radius: 12px;
+    padding: 14px;
+}
+
+.form-label {
+    color: #9a9ab8;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.time-box {
+    margin-top: 2px;
+}
+
+/* Dialog action buttons (Cancel / Save): give them room to breathe */
+.appt-dialog .dialog-action-area,
+.appt-dialog .dialog-action-box,
+.appt-dialog actionbar > box,
+.appt-dialog buttonbox {
+    padding: 12px 20px;
+    margin: 0;
+}
+
+.appt-dialog .dialog-action-area button,
+.appt-dialog .dialog-action-box button,
+.appt-dialog actionbar button,
+.appt-dialog buttonbox button {
+    margin: 0 8px;
+    padding: 8px 26px;
+    min-width: 90px;
+}
+
+.time-box entry {
+    min-width: 44px;
+}
+
+.entry, entry {
+    background-color: #2c2c40;
+    color: #e6e6f0;
+    border: 1px solid #3a3a55;
+    border-radius: 8px;
+    padding: 8px 10px;
+    min-height: 20px;
+}
+
+entry:focus-within {
+    border-color: #b39ddb;
+}
+
+.label, label {
+    color: #cfcfe6;
+}
+
+separator {
+    background-color: #2e2e44;
+}
+
+calendar {
+    background-color: #2c2c40;
+    color: #e6e6f0;
+    border: 1px solid #3a3a55;
+    border-radius: 10px;
+    padding: 6px;
+}
+
+calendar:selected {
+    background-color: #b39ddb;
+    color: #1b1b26;
+    border-radius: 6px;
+}
+
+/* Month / day titles */
+.month-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #e6e6f0;
+    margin-bottom: 4px;
+}
+
+.day-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #b39ddb;
+}
+
+/* Compact header controls so they stay visible when small */
+headerbar {
+    padding: 4px 8px;
+    min-height: 0;
+}
+
+headerbar box {
+    min-height: 0;
+}
+
+/* Day cells: keep small and legible on narrow windows */
+.day-cell {
+    min-height: 38px;
+    padding: 3px;
+}
+
+.appt-chip {
+    font-size: 10px;
+    padding: 1px 4px;
+}
+
+/* Right list column width when horizontal */
+listbox, .list-box {
+    background-color: #1b1b26;
+}
+
+/* Make the popover/dialog scroll nicely on tiny screens */
+scrolledwindow {
+    background-color: transparent;
+}
+

@@ -1,0 +1,332 @@
+use calendar::model::{make_datetime, Appointment};
+use chrono::{Datelike, NaiveDate, Timelike};
+use gtk::prelude::*;
+use gtk::{
+    Box, Button, ButtonsType, Calendar, CheckButton, Dialog, Entry, Label, MessageDialog,
+    ResponseType,
+};
+
+/// Show a form dialog to create or edit an appointment.
+/// `initial_date` is used when creating a new appointment.
+/// `existing` is Some when editing.
+/// The chosen appointment (or None if cancelled) is delivered via `on_result`.
+/// `on_delete`, if provided, is invoked when the user deletes an existing
+/// appointment (only shown when `existing` is Some).
+pub fn run_appointment_dialog(
+    parent: &impl IsA<gtk::Window>,
+    initial_date: NaiveDate,
+    existing: Option<&Appointment>,
+    on_result: std::boxed::Box<dyn Fn(Option<Appointment>) + 'static>,
+    on_delete: Option<std::boxed::Box<dyn Fn() + 'static>>,
+) {
+    let dialog = Dialog::with_buttons(
+        Some(if existing.is_some() {
+            crate::i18n::t("edit_appointment")
+        } else {
+            crate::i18n::t("new_appointment")
+        }),
+        Some(parent),
+        gtk::DialogFlags::MODAL,
+        &[
+            (crate::i18n::t("cancel"), ResponseType::Cancel),
+            (crate::i18n::t("save"), ResponseType::Accept),
+        ],
+    );
+    dialog.set_default_response(ResponseType::Accept);
+    dialog.set_default_size(620, 760);
+    dialog.set_resizable(true);
+    dialog.add_css_class("appt-dialog");
+    // Wrap the callback in an Rc so it can be shared with the (optional) delete button.
+    let on_result = std::rc::Rc::new(on_result);
+    let content = dialog.content_area();
+    content.set_spacing(0);
+    content.set_margin_top(0);
+    content.set_margin_bottom(0);
+    content.set_margin_start(0);
+    content.set_margin_end(0);
+
+    let form = Box::new(gtk::Orientation::Vertical, 12);
+    form.add_css_class("appt-form");
+    form.set_margin_top(16);
+    form.set_margin_bottom(16);
+    form.set_margin_start(20);
+    form.set_margin_end(20);
+    form.set_hexpand(true);
+    form.set_vexpand(true);
+    content.append(&form);
+
+    let title_entry = Entry::builder()
+        .placeholder_text(crate::i18n::t("add_title"))
+        .hexpand(true)
+        .build();
+    let desc_entry = Entry::builder()
+        .placeholder_text(crate::i18n::t("add_description"))
+        .hexpand(true)
+        .build();
+    let loc_entry = Entry::builder()
+        .placeholder_text(crate::i18n::t("add_location"))
+        .hexpand(true)
+        .build();
+
+    let cal = Calendar::builder().hexpand(true).build();
+    let start_hour = Entry::builder().placeholder_text("HH").width_chars(3).max_length(2).build();
+    let start_min = Entry::builder().placeholder_text("MM").width_chars(3).max_length(2).build();
+    let end_hour = Entry::builder().placeholder_text("HH").width_chars(3).max_length(2).build();
+    let end_min = Entry::builder().placeholder_text("MM").width_chars(3).max_length(2).build();
+    let all_day = CheckButton::builder().label(crate::i18n::t("all_day")).build();
+
+    if let Some(a) = existing {
+        title_entry.set_text(&a.title);
+        desc_entry.set_text(&a.description);
+        loc_entry.set_text(&a.location);
+        cal.set_year(a.start.year());
+        cal.set_month((a.start.month() - 1) as i32);
+        cal.set_day(a.start.day() as i32);
+        start_hour.set_text(&format!("{:02}", a.start.hour()));
+        start_min.set_text(&format!("{:02}", a.start.minute()));
+        end_hour.set_text(&format!("{:02}", a.end.hour()));
+        end_min.set_text(&format!("{:02}", a.end.minute()));
+        all_day.set_active(a.all_day);
+    } else {
+        cal.set_year(initial_date.year());
+        cal.set_month((initial_date.month() - 1) as i32);
+        cal.set_day(initial_date.day() as i32);
+        start_hour.set_text("09");
+        start_min.set_text("00");
+        end_hour.set_text("10");
+        end_min.set_text("00");
+    }
+
+    // --- Details section ---
+    let heading = Label::new(Some(if existing.is_some() {
+        crate::i18n::t("edit_appointment")
+    } else {
+        crate::i18n::t("new_appointment")
+    }));
+    heading.add_css_class("form-heading");
+    heading.set_xalign(0.0);
+    form.append(&heading);
+
+    let details = section_box();
+    details.append(&row_widget(crate::i18n::t("title"), &title_entry));
+    details.append(&row_widget(crate::i18n::t("description"), &desc_entry));
+    details.append(&row_widget(crate::i18n::t("location"), &loc_entry));
+    form.append(&details);
+
+    // --- Date & time section ---
+    let dt_heading = Label::new(Some(crate::i18n::t("date_time")));
+    dt_heading.add_css_class("form-section-title");
+    dt_heading.set_xalign(0.0);
+    form.append(&dt_heading);
+
+    let dt_section = section_box();
+
+    cal.set_hexpand(true);
+    dt_section.append(&cal);
+
+    let time_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    time_box.add_css_class("time-box");
+    time_box.set_halign(gtk::Align::Start);
+
+    let start_lbl = Label::new(Some(crate::i18n::t("start")));
+    start_lbl.set_width_chars(6);
+    start_lbl.set_xalign(0.0);
+    time_box.append(&start_lbl);
+    time_box.append(&start_hour);
+    time_box.append(&Label::new(Some(":")));
+    time_box.append(&start_min);
+
+    let end_lbl = Label::new(Some(crate::i18n::t("end")));
+    end_lbl.set_width_chars(5);
+    end_lbl.set_xalign(0.0);
+    end_lbl.set_margin_start(16);
+    time_box.append(&end_lbl);
+    time_box.append(&end_hour);
+    time_box.append(&Label::new(Some(":")));
+    time_box.append(&end_min);
+
+    dt_section.append(&time_box);
+    dt_section.append(&all_day);
+    form.append(&dt_section);
+
+    // Grey out the time inputs while "All day" is active.
+    {
+        let widgets = [
+            start_hour.clone(),
+            start_min.clone(),
+            end_hour.clone(),
+            end_min.clone(),
+        ];
+        let apply = move |active: bool| {
+            for w in &widgets {
+                w.set_sensitive(!active);
+            }
+        };
+        apply(all_day.is_active());
+        all_day.connect_toggled(move |cb| apply(cb.is_active()));
+    }
+
+    if let Some(on_delete) = on_delete {
+        let del_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        del_row.set_halign(gtk::Align::Start);
+        del_row.set_margin_top(4);
+        let del_btn = Button::with_label(crate::i18n::t("delete"));
+        del_btn.add_css_class("delete-button");
+        let on_result = on_result.clone();
+        del_btn.connect_clicked(move |b: &Button| {
+            let dialog = b.root().and_downcast::<Dialog>().unwrap();
+            dialog.close();
+            on_delete();
+            on_result(None);
+        });
+        del_row.append(&del_btn);
+        form.append(&del_row);
+    }
+
+    dialog.present();
+
+    let existing_owned: Option<Appointment> = existing.cloned();
+    let res = dialog.clone();
+    dialog.connect_response(move |d, response| {
+        if response == ResponseType::Cancel {
+            d.close();
+            on_result(None);
+            return;
+        }
+        if response != ResponseType::Accept {
+            return;
+        }
+        let fields = FormFields {
+            title: &title_entry,
+            desc: &desc_entry,
+            loc: &loc_entry,
+            cal: &cal,
+            sh: &start_hour,
+            sm: &start_min,
+            eh: &end_hour,
+            em: &end_min,
+            all_day: &all_day,
+        };
+        match build_appointment(existing_owned.as_ref(), &fields) {
+            Ok(a) => {
+                d.close();
+                on_result(Some(a));
+            }
+            Err(msg) => {
+                // Keep the form open so the user can correct the input.
+                let err = MessageDialog::new(
+                    Some(d),
+                    gtk::DialogFlags::MODAL,
+                    gtk::MessageType::Error,
+                    ButtonsType::Ok,
+                    &msg,
+                );
+                err.connect_response(|e, _| e.close());
+                err.present();
+            }
+        }
+        let _ = res;
+    });
+}
+
+struct FormFields<'a> {
+    title: &'a Entry,
+    desc: &'a Entry,
+    loc: &'a Entry,
+    cal: &'a Calendar,
+    sh: &'a Entry,
+    sm: &'a Entry,
+    eh: &'a Entry,
+    em: &'a Entry,
+    all_day: &'a CheckButton,
+}
+
+fn build_appointment(
+    existing: Option<&Appointment>,
+    f: &FormFields,
+) -> Result<Appointment, String> {
+    let title_text = f.title.text().to_string();
+    if title_text.trim().is_empty() {
+        return Err(crate::i18n::t("title_required").to_string());
+    }
+    let dt = f.cal.date();
+    let y = dt.year();
+    let m = dt.month() as u32;
+    let d = dt.day_of_month() as u32;
+    let date = NaiveDate::from_ymd_opt(y, m, d)
+        .ok_or_else(|| crate::i18n::t("invalid_date").to_string())?;
+
+    let all = f.all_day.is_active();
+    let (sh_v, sm_v, eh_v, em_v) = if all {
+        (0, 0, 23, 59)
+    } else {
+        let parse = |e: &Entry, key: &str| -> Result<u32, String> {
+            e.text()
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| crate::i18n::must_be_number(key))
+        };
+        (
+            parse(f.sh, "start_hour")?,
+            parse(f.sm, "start_min")?,
+            parse(f.eh, "end_hour")?,
+            parse(f.em, "end_min")?,
+        )
+    };
+
+    if sh_v > 23 || sm_v > 59 || eh_v > 23 || em_v > 59 {
+        return Err(crate::i18n::t("time_out_of_range").to_string());
+    }
+
+    let start = make_datetime(date, sh_v, sm_v);
+    let mut end = make_datetime(date, eh_v, em_v);
+    if all {
+        // iCalendar all-day DTEND is exclusive: store start of the day after.
+        end = start + chrono::Duration::days(1);
+    } else if end <= start {
+        end = start + chrono::Duration::hours(1);
+    }
+
+    let appt = if let Some(ex) = existing {
+        Appointment::with_uid(
+            ex.uid.clone(),
+            title_text,
+            f.desc.text().to_string(),
+            f.loc.text().to_string(),
+            start,
+            end,
+            all,
+        )
+    } else {
+        Appointment::with_uid(
+            uuid::Uuid::new_v4().to_string(),
+            title_text,
+            f.desc.text().to_string(),
+            f.loc.text().to_string(),
+            start,
+            end,
+            all,
+        )
+    };
+    Ok(appt)
+}
+
+fn section_box() -> gtk::Box {
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    b.add_css_class("form-section");
+    b.set_hexpand(true);
+    b
+}
+
+fn row_widget(label: &str, w: &impl IsA<gtk::Widget>) -> gtk::Box {
+    let h = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    h.set_hexpand(true);
+    let l = Label::new(Some(label));
+    l.add_css_class("form-label");
+    l.set_width_chars(12);
+    l.set_xalign(0.0);
+    l.set_valign(gtk::Align::Center);
+    h.append(&l);
+    h.append(w);
+    h
+}

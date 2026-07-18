@@ -1,0 +1,24 @@
+[package]
+name = "calendar"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "shadowdate"
+path = "src/main.rs"
+
+[lib]
+name = "calendar"
+path = "src/lib.rs"
+
+[dependencies]
+gtk = { version = "0.11", package = "gtk4" }
+glib = "0.20"
+gio = "0.20"
+chrono = { version = "0.4", features = ["serde"] }
+ical = "0.11"
+anyhow = "1.0"
+uuid = { version = "1.8", features = ["v4"] }
+
+[profile.release]
+opt-level = 2
