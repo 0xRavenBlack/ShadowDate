@@ -119,8 +119,8 @@ ShadowDate is fixed at **1024 × 560** and looks best floating:
 
 ```conf
 # ~/.config/hypr/hyprland.conf
-windowrule = float,           class:(com.ravenblack.shadowdate)
-windowrule = size 1024 560,   class:(com.ravenblack.shadowdate)
+windowrulev = float, class:^(com\.ravenblack\.shadowdate)$
+windowrulev = size 1024 560, class:^(com\.ravenblack\.shadowdate)$windowrule = float, ^com\.ravenblack\.shadowdate$
 ```
 
 Then reload: `hyprctl reload` 🔄
