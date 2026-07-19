@@ -285,56 +285,48 @@ fn render_month(
     }
 
     let first = NaiveDate::from_ymd_opt(view_year, view_month, 1).unwrap();
-    let first_weekday = (first.weekday().num_days_from_monday() as i32) + 1;
+    let first_weekday = first.weekday().num_days_from_monday() as i32;
     let days_in_month = days_in(view_year, view_month);
     let t = today();
 
-    let mut day = 1;
-    let rows = 6;
-    for r in 1..=rows {
-        for c in 0..7 {
-            if (r == 1 && c + 1 < first_weekday) || day > days_in_month {
-                let pad_date = if r == 1 && c + 1 < first_weekday {
-                    first - chrono::Duration::days((first_weekday - (c + 1)) as i64)
-                } else {
-                    first + chrono::Duration::days((day - days_in_month) as i64)
-                };
-                let cell = build_cell(&pad_date.to_string(), true, false, false, &[]);
-                grid.attach(&cell, c, r, 1, 1);
-                continue;
-            }
-            let date = NaiveDate::from_ymd_opt(view_year, view_month, day).unwrap();
-            let appts: Vec<Appointment> =
-                store.borrow().on_date(date).into_iter().cloned().collect();
-            let is_today = date == t;
-            let is_selected = date == selected;
-            let chip_texts: Vec<String> = appts.iter().map(|a| a.title.clone()).collect();
-            let cell = build_cell(
-                &day.to_string(),
-                false,
-                is_today,
-                is_selected,
-                &chip_texts,
-            );
-            let st = state.clone();
-            let g = grid.clone();
-            let ml = month_label.clone();
-            let lb = list_box.clone();
-            let dl = day_label.clone();
-            let oe = on_edit.clone();
-            let sto = store.clone();
-            // Cells are rebuilt on every render, so a fresh click gesture is
-            // attached per cell; the old cell (and its controller) is dropped
-            // when removed from the grid above, so this does not leak.
-            let ev = gtk::GestureClick::new();
-            ev.connect_pressed(move |_, _, _, _| {
-                st.borrow_mut().selected = date;
-                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe);
-            });
-            cell.add_controller(ev);
-            grid.attach(&cell, c, r, 1, 1);
-            day += 1;
-        }
+    // Render only days that belong to the current month, placed in their
+    // correct weekday column. Inactive padding days from the previous/next
+    // month are not displayed; the grid keeps a fixed 6-row height with the
+    // trailing cells left empty.
+    for day in 1..=days_in_month {
+        let date = NaiveDate::from_ymd_opt(view_year, view_month, day).unwrap();
+        let offset = first_weekday + (day - 1) as i32;
+        let c = offset % 7;
+        let r = 1 + offset / 7;
+        let appts: Vec<Appointment> =
+            store.borrow().on_date(date).into_iter().cloned().collect();
+        let is_today = date == t;
+        let is_selected = date == selected;
+        let chip_texts: Vec<String> = appts.iter().map(|a| a.title.clone()).collect();
+        let cell = build_cell(
+            &day.to_string(),
+            false,
+            is_today,
+            is_selected,
+            &chip_texts,
+        );
+        let st = state.clone();
+        let g = grid.clone();
+        let ml = month_label.clone();
+        let lb = list_box.clone();
+        let dl = day_label.clone();
+        let oe = on_edit.clone();
+        let sto = store.clone();
+        // Cells are rebuilt on every render, so a fresh click gesture is
+        // attached per cell; the old cell (and its controller) is dropped
+        // when removed from the grid above, so this does not leak.
+        let ev = gtk::GestureClick::new();
+        ev.connect_pressed(move |_, _, _, _| {
+            st.borrow_mut().selected = date;
+            refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe);
+        });
+        cell.add_controller(ev);
+        grid.attach(&cell, c, r, 1, 1);
     }
 }
 
