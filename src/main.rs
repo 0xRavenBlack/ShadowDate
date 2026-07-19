@@ -63,7 +63,7 @@ fn build_ui(app: &Application) {
     let store = Rc::new(RefCell::new(io_ics::load_store(&path)));
     let window = ApplicationWindow::builder()
         .application(app)
-        .title("ShadowDate")
+        .title("Shadow Date")
         .default_width(1024)
         .default_height(560)
         .build();
@@ -84,10 +84,11 @@ fn build_ui(app: &Application) {
     if let Some(logo) = images::logo_widget(30) {
         brand.append(&logo);
     }
-    let brand_label = gtk::Label::new(Some("ShadowDate"));
+    let brand_label = gtk::Label::new(Some("Shadow Date"));
     brand_label.add_css_class("brand-title");
     brand.append(&brand_label);
     header.pack_start(&brand);
+    header.set_title_widget(Some(&gtk::Label::new(None)));
 
     let nav_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
 
