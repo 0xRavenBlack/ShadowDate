@@ -18,7 +18,7 @@ use std::rc::Rc;
 const APP_ID: &str = "com.ravenblack.shadowdate";
 
 fn data_path() -> PathBuf {
-    let mut p = dirs_data().unwrap_or_else(|| PathBuf::from("."));
+    let mut p = dirs_data().unwrap_or_else(std::env::temp_dir);
     p.push("calendar");
     p.push("calendar.ics");
     p
@@ -104,7 +104,8 @@ fn build_ui(app: &Application) {
             let path = path.clone();
             let view_ref = view_ref.clone();
             let existing = appt.clone();
-            let del_uid = appt.uid.clone();
+            let del_series = existing.series_uid.clone();
+            let del_series2 = del_series.clone();
             let del_store = store.clone();
             let del_path = path.clone();
             let del_view = view_ref.clone();
@@ -114,6 +115,9 @@ fn build_ui(app: &Application) {
                 Some(&existing),
                 std::boxed::Box::new(move |result| {
                     if let Some(result) = result {
+                        // Editing replaces the entire series with the single
+                        // (now non-recurring) appointment the user submitted.
+                        store.borrow_mut().remove_series(&del_series);
                         store.borrow_mut().insert(result);
                         let _ = io_ics::save_store(&store.borrow(), &path);
                         if let Some(v) = view_ref.borrow().as_ref() {
@@ -122,7 +126,7 @@ fn build_ui(app: &Application) {
                     }
                 }),
                 Some(std::boxed::Box::new(move || {
-                    del_store.borrow_mut().remove(&del_uid);
+                    del_store.borrow_mut().remove_series(&del_series2);
                     let _ = io_ics::save_store(&del_store.borrow(), &del_path);
                     if let Some(v) = del_view.borrow().as_ref() {
                         v.refresh();
