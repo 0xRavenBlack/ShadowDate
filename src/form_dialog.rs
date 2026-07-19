@@ -33,8 +33,10 @@ pub fn run_appointment_dialog(
         ],
     );
     dialog.set_default_response(ResponseType::Accept);
-    dialog.set_default_size(620, 760);
-    dialog.set_resizable(true);
+    // Keep the dialog within the fixed application window (1024x560) and avoid
+    // any scrolling: it must fit 100% of the available height.
+    dialog.set_default_size(620, 520);
+    dialog.set_resizable(false);
     dialog.add_css_class("appt-dialog");
     // Wrap the callback in an Rc so it can be shared with the (optional) delete button.
     let on_result = std::rc::Rc::new(on_result);
@@ -79,18 +81,14 @@ pub fn run_appointment_dialog(
         title_entry.set_text(&a.title);
         desc_entry.set_text(&a.description);
         loc_entry.set_text(&a.location);
-        cal.set_year(a.start.year());
-        cal.set_month((a.start.month() - 1) as i32);
-        cal.set_day(a.start.day() as i32);
+        select_calendar_day(&cal, a.start.date_naive());
         start_hour.set_text(&format!("{:02}", a.start.hour()));
         start_min.set_text(&format!("{:02}", a.start.minute()));
         end_hour.set_text(&format!("{:02}", a.end.hour()));
         end_min.set_text(&format!("{:02}", a.end.minute()));
         all_day.set_active(a.all_day);
     } else {
-        cal.set_year(initial_date.year());
-        cal.set_month((initial_date.month() - 1) as i32);
-        cal.set_day(initial_date.day() as i32);
+        select_calendar_day(&cal, initial_date);
         start_hour.set_text("09");
         start_min.set_text("00");
         end_hour.set_text("10");
@@ -329,4 +327,20 @@ fn row_widget(label: &str, w: &impl IsA<gtk::Widget>) -> gtk::Box {
     h.append(&l);
     h.append(w);
     h
+}
+
+/// Select a date on the GTK `Calendar` in a single call. Using `select_day`
+/// (rather than three separate year/month/day setters) is robust around month
+/// boundaries (e.g. Jan 31 -> month change) where sequential setters can clamp.
+fn select_calendar_day(cal: &gtk::Calendar, date: NaiveDate) {
+    if let Ok(dt) = gtk::glib::DateTime::from_local(
+        date.year(),
+        date.month() as i32,
+        date.day() as i32,
+        0,
+        0,
+        0.0,
+    ) {
+        cal.select_day(&dt);
+    }
 }
