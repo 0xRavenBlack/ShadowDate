@@ -295,9 +295,7 @@ fn render_month(
     // trailing cells left empty.
     for day in 1..=days_in_month {
         let date = NaiveDate::from_ymd_opt(view_year, view_month, day).unwrap();
-        let offset = first_weekday + (day - 1) as i32;
-        let c = offset % 7;
-        let r = 1 + offset / 7;
+        let (c, r) = grid_position(first_weekday, day);
         let appts: Vec<Appointment> =
             store.borrow().on_date(date).into_iter().cloned().collect();
         let is_today = date == t;
@@ -458,3 +456,48 @@ fn build_appt_row(a: &Appointment) -> Box {
     }
     row
 }
+
+/// Map a day-of-month to its (column, row) in the 7-column month grid, given
+/// the weekday of the 1st of the month (Monday = 0). Row 0 holds the weekday
+/// headers; day rows start at 1. This is the pure core of the grid alignment so
+/// it can be unit-tested without a display.
+fn grid_position(first_weekday: i32, day: u32) -> (i32, i32) {
+    let offset = first_weekday + (day - 1) as i32;
+    (offset % 7, 1 + offset / 7)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::grid_position;
+
+    #[test]
+    fn first_of_month_landing_on_its_weekday() {
+        // A month whose 1st is a Monday (first_weekday = 0) puts day 1 at
+        // column 0, row 1.
+        assert_eq!(grid_position(0, 1), (0, 1));
+        // Day 7 (still Monday-based week) lands on column 6, row 1.
+        assert_eq!(grid_position(0, 7), (6, 1));
+        // Day 8 wraps to the next row, column 0.
+        assert_eq!(grid_position(0, 8), (0, 2));
+    }
+
+    #[test]
+    fn weekday_offset_shifts_columns() {
+        // 1st is a Wednesday (first_weekday = 2): day 1 -> column 2, row 1.
+        assert_eq!(grid_position(2, 1), (2, 1));
+        // Day 6 (the following Monday) -> column 0, row 2.
+        assert_eq!(grid_position(2, 6), (0, 2));
+    }
+
+    #[test]
+    fn columns_stay_in_range() {
+        for first in 0..7i32 {
+            for day in 1..=31u32 {
+                let (c, r) = grid_position(first, day);
+                assert!((0..7).contains(&c), "col {} out of range", c);
+                assert!((1..=6).contains(&r), "row {} out of range", r);
+            }
+        }
+    }
+}
+
