@@ -40,6 +40,10 @@ package() {
     install -Dm644 "resources/${_appid}.desktop" \
         "${pkgdir}/usr/share/applications/${_appid}.desktop"
 
+    # Icon
+    install -Dm644 "resources/img/Logo.png" \
+        "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${_appid}.png"
+
     # License
     install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
