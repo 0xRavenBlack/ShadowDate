@@ -4,6 +4,12 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Appointment {
     pub uid: String,
+    /// UID of the series this appointment belongs to. For single (non-recurring)
+    /// appointments this equals `uid`; for occurrences expanded from an `RRULE`
+    /// it is the base event's UID, so the whole series can be edited/deleted
+    /// together. The color is derived from `series_uid` so all occurrences of a
+    /// recurring event share the same pastel class.
+    pub series_uid: String,
     pub title: String,
     pub description: String,
     pub location: String,
@@ -11,6 +17,19 @@ pub struct Appointment {
     pub end: DateTime<Local>,
     pub all_day: bool,
     pub color_index: usize,
+}
+
+/// Fields needed to construct an `Appointment`. Used by `Appointment::build`
+/// to avoid an excessively long argument list.
+pub struct NewAppointment {
+    pub uid: String,
+    pub series_uid: String,
+    pub title: String,
+    pub description: String,
+    pub location: String,
+    pub start: DateTime<Local>,
+    pub end: DateTime<Local>,
+    pub all_day: bool,
 }
 
 impl Appointment {
@@ -23,8 +42,8 @@ impl Appointment {
         end: DateTime<Local>,
         all_day: bool,
     ) -> Self {
-        let color_index = color_for_uid(&uid);
-        Self {
+        Self::with_uid_series(NewAppointment {
+            series_uid: uid.clone(),
             uid,
             title,
             description,
@@ -32,6 +51,23 @@ impl Appointment {
             start,
             end,
             all_day,
+        })
+    }
+
+    /// Build an appointment that belongs to a recurring series. `series_uid`
+    /// must be the base event's UID so the whole series can be edited/deleted
+    /// together; `uid` should be unique per occurrence.
+    pub fn with_uid_series(n: NewAppointment) -> Self {
+        let color_index = color_for_uid(&n.series_uid);
+        Self {
+            uid: n.uid,
+            series_uid: n.series_uid,
+            title: n.title,
+            description: n.description,
+            location: n.location,
+            start: n.start,
+            end: n.end,
+            all_day: n.all_day,
             color_index,
         }
     }
@@ -84,12 +120,28 @@ impl Store {
 
     pub fn remove(&mut self, uid: &str) {
         if let Some(pos) = self.index.remove(uid) {
-            self.items.remove(pos);
-            // rebuild index
-            self.index.clear();
-            for (i, a) in self.items.iter().enumerate() {
-                self.index.insert(a.uid.clone(), i);
+            // swap_remove keeps the Vec compact in O(1); only the item that was
+            // moved into `pos` needs its index entry corrected.
+            let swapped = self.items.swap_remove(pos);
+            if let Some(moved) = self.items.get(pos) {
+                self.index.insert(moved.uid.clone(), pos);
             }
+            let _ = swapped;
+        }
+    }
+
+    /// Remove every appointment that belongs to the given series (matched by
+    /// `series_uid`), including single appointments whose `series_uid == uid`.
+    pub fn remove_series(&mut self, series_uid: &str) {
+        let keep: Vec<Appointment> = self
+            .items
+            .drain(..)
+            .filter(|a| a.series_uid != series_uid)
+            .collect();
+        self.items = keep;
+        self.index.clear();
+        for (i, a) in self.items.iter().enumerate() {
+            self.index.insert(a.uid.clone(), i);
         }
     }
 
@@ -136,9 +188,4 @@ pub fn make_datetime(date: NaiveDate, hour: u32, min: u32) -> DateTime<Local> {
 
 pub fn today() -> NaiveDate {
     Local::now().date_naive()
-}
-
-/// Format a date for display.
-pub fn format_date(d: NaiveDate) -> String {
-    d.format("%A, %B %-d, %Y").to_string()
 }
