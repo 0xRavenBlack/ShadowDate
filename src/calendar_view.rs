@@ -82,6 +82,8 @@ impl CalendarView {
         let grid = Grid::new();
         grid.set_column_spacing(4);
         grid.set_row_spacing(4);
+        grid.set_column_homogeneous(true);
+        grid.set_row_homogeneous(true);
         grid.add_css_class("calendar-grid");
         grid.set_halign(gtk::Align::Fill);
         grid.set_valign(gtk::Align::Start);
@@ -89,8 +91,6 @@ impl CalendarView {
             .child(&grid)
             .hexpand(true)
             .vexpand(true)
-            .propagate_natural_width(true)
-            .propagate_natural_height(true)
             .build();
         content.append(&grid_scroll);
 
@@ -300,13 +300,12 @@ fn render_month(
             store.borrow().on_date(date).into_iter().cloned().collect();
         let is_today = date == t;
         let is_selected = date == selected;
-        let chip_texts: Vec<String> = appts.iter().map(|a| a.title.clone()).collect();
         let cell = build_cell(
             &day.to_string(),
             false,
             is_today,
             is_selected,
-            &chip_texts,
+            &appts,
         );
         let st = state.clone();
         let g = grid.clone();
@@ -390,11 +389,14 @@ fn build_cell(
     other_month: bool,
     is_today: bool,
     is_selected: bool,
-    chips: &[String],
+    appts: &[Appointment],
 ) -> Box {
     let cell = Box::new(gtk::Orientation::Vertical, 2);
     cell.add_css_class("day-cell");
     cell.set_valign(gtk::Align::Fill);
+    // Fixed footprint so the cell never grows with its contents (long titles,
+    // many appointments); chips ellipsize and overflow is shown via tooltip.
+    cell.set_size_request(-1, 64);
     if other_month {
         cell.add_css_class("other-month");
     }
@@ -419,18 +421,36 @@ fn build_cell(
     }
     num_center.set_center_widget(Some(&num));
     cell.append(&num_center);
-    for (i, chip) in chips.iter().take(3).enumerate() {
-        let c = Label::new(Some(chip));
+    for a in appts.iter().take(3) {
+        let c = Label::new(Some(&a.title));
         c.add_css_class("appt-chip");
-        c.add_css_class(&format!("c{}", i % 6));
+        c.add_css_class(&format!("c{}", a.color_index % 6));
         c.set_xalign(0.0);
+        c.set_hexpand(true);
+        c.set_max_width_chars(14);
         c.set_ellipsize(gtk::pango::EllipsizeMode::End);
         cell.append(&c);
     }
-    if chips.len() > 3 {
-        let more = Label::new(Some(&crate::i18n::more_label(chips.len() - 3)));
+    if appts.len() > 3 {
+        let more = Label::new(Some(&crate::i18n::more_label(appts.len() - 3)));
         more.add_css_class("empty-label");
         cell.append(&more);
+    }
+    if !appts.is_empty() {
+        let detail: Vec<String> = appts
+            .iter()
+            .map(|a| {
+                let mut s = format!("• {}  {}", a.time_label(), a.title);
+                if !a.location.is_empty() {
+                    s.push_str(&format!("  @ {}", a.location));
+                }
+                if !a.description.is_empty() {
+                    s.push_str(&format!("\n  {}", a.description));
+                }
+                s
+            })
+            .collect();
+        cell.set_tooltip_text(Some(&detail.join("\n")));
     }
     cell
 }
