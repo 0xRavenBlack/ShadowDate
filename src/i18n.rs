@@ -295,6 +295,11 @@ fn full_weekday(idx: usize) -> &'static str {
 
 fn full_month(idx: usize) -> &'static str {
     // idx: 0 = January .. 11 = December
+    // Chinese and Japanese share the same "N月" month forms, so the JA row
+    // reuses the ZH row to avoid divergence.
+    const ZH_MONTHS: [&str; 12] = [
+        "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月",
+    ];
     let table: [[&str; 12]; 7] = [
         [
             "January", "February", "March", "April", "May", "June", "July", "August", "September",
@@ -312,12 +317,8 @@ fn full_month(idx: usize) -> &'static str {
             "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre",
             "octubre", "noviembre", "diciembre",
         ],
-        [
-            "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月",
-        ],
-        [
-            "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月",
-        ],
+        ZH_MONTHS,
+        ZH_MONTHS,
         [
             "styczeń",
             "luty",
