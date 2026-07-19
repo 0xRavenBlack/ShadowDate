@@ -45,7 +45,7 @@ PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
 - Run: `./target/release/shadowdate`
 - Test: `cargo test` (ics round-trip + load tests)
 - Lint/typecheck: `cargo clippy` (clean; no warnings expected)
-- AUR build: `makepkg` (clones `https://github.com/0xRavenBlack/com.ravenblack.shadowdate.git`)
+- AUR build: `makepkg` (clones `https://github.com/0xRavenBlack/ShadowDate.git`)
 
 ## Key architecture decisions
 
