@@ -16,6 +16,7 @@ gtk = { version = "0.11", package = "gtk4" }
 glib = "0.20"
 gio = "0.20"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 ical = "0.11"
 anyhow = "1.0"
 uuid = { version = "1.8", features = ["v4"] }
