@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-const APP_ID: &str = "com.ravenblack.shadowdate";
+const APP_ID: &str = "0xravenblack.shadowdata";
 
 fn data_path() -> PathBuf {
     let mut p = dirs_data().unwrap_or_else(std::env::temp_dir);

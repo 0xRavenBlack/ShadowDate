@@ -10,7 +10,7 @@ UI, and **iCalendar (.ics)** import/export. Appointments are stored as a single 
 file, which is also the on-disk format and the export format (so save == write ics).
 
 Previously known as "calendar"; the app was renamed to **ShadowDate** (binary
-`shadowdate`, package id `com.ravenblack.shadowdate`).
+`shadowdate`, package id `0xravenblack.shadowdata`).
 
 ## Layout
 
@@ -31,7 +31,7 @@ tests/
                         # escaping, series delete (calendar_view has grid unit tests)
 resources/
   style.css             # dark pastel theme (loaded at runtime via CssProvider)
-  com.ravenblack.shadowdate.desktop  # desktop entry (also installed by PKGBUILD)
+  0xravenblack.shadowdata.desktop  # desktop entry (also installed by PKGBUILD)
   img/
     Logo.png            # 2048x2048 app logo, embedded as the icon/branding
     portrait_face.png   # 2048x2048, shown translucently behind the calendar grid
@@ -50,11 +50,11 @@ PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
 ## Key architecture decisions
 
 - **Window**: `ApplicationWindow`, decorated, **non-resizable, non-maximizable**,
-  fixed at **1024×560**. App ID = `com.ravenblack.shadowdate` (also used as the icon
+  fixed at **1024×560**. App ID = `0xravenblack.shadowdata` (also used as the icon
   name via `gtk::Window::set_default_icon_name` and the desktop `Icon=`/window class).
   Floating on Hyprland is enforced by `windowrule` in `~/.config/hypr/hyprland.conf`:
-  `windowrule = float, class:(com.ravenblack.shadowdate)` and
-  `windowrule = size 1024 560, class:(com.ravenblack.shadowdate)`.
+  `windowrule = float, class:(0xravenblack.shadowdata)` and
+  `windowrule = size 1024 560, class:(0xravenblack.shadowdata)`.
 - **Close button**: default title-buttons hidden (`set_show_title_buttons(false)`);
   a textual **"Exit"** button (`.exit-button` dark red CSS) closes the window.
 - **Branding**: the `Logo.png` is embedded (`include_bytes!`) and shown as a 30px

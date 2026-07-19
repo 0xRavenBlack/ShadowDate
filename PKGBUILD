@@ -1,5 +1,5 @@
 # Maintainer: Mike Ravenblack <0xRavenBlack@github>
-pkgname=com.ravenblack.shadowdate
+pkgname=0xravenblack.shadowdata
 _pkgname=shadowdate
 pkgver=0.2.0
 pkgrel=1
@@ -11,7 +11,7 @@ depends=('gtk4' 'glib2')
 makedepends=('git' 'cargo' 'gtk4')
 provides=('shadowdate')
 conflicts=('shadowdate')
-source=("git+${url}.git")
+source=("${pkgname}::git+${url}.git")
 sha256sums=('SKIP')
 
 prepare() {

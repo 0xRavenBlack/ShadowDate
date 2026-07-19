@@ -2,7 +2,7 @@
 
 <img src="resources/img/Logo.png" alt="ShadowDate logo" width="180"/>
 
-# 🌙 ShadowDate
+# 🌙 Shadow Date
 
 ### *A gothic, dark-pastel desktop calendar for Linux* 🦇
 
@@ -104,7 +104,7 @@ cargo test
 cp target/release/shadowdate ~/.local/bin/
 
 # Desktop entry
-cp resources/com.ravenblack.shadowdate.desktop ~/.local/share/applications/
+cp resources/0xravenblack.shadowdata.desktop ~/.local/share/applications/
 
 # Refresh caches
 update-desktop-database ~/.local/share/applications
@@ -119,8 +119,8 @@ ShadowDate is fixed at **1024 × 560** and looks best floating:
 
 ```conf
 # ~/.config/hypr/hyprland.conf
-windowrulev = float, class:^(com\.ravenblack\.shadowdate)$
-windowrulev = size 1024 560, class:^(com\.ravenblack\.shadowdate)$windowrule = float, ^com\.ravenblack\.shadowdate$
+windowrulev = float, class:^(0xravenblack\.shadowdata)$
+windowrulev = size 1024 560, class:^(0xravenblack\.shadowdata)$windowrule = float, ^0xravenblack\.shadowdata$
 ```
 
 Then reload: `hyprctl reload` 🔄
