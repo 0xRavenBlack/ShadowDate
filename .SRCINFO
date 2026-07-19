@@ -11,6 +11,7 @@ pkgbase = shadowdate
 	makedepends = gtk4
 	depends = gtk4
 	depends = glib2
+	options = !debug
 	source = shadowdate::git+https://github.com/0xRavenBlack/ShadowDate.git
 	sha256sums = SKIP
 

@@ -6,6 +6,7 @@ pkgrel=1
 pkgdesc="A gothic dark-pastel desktop calendar for Linux (Rust + GTK4) with iCalendar support"
 arch=('x86_64' 'aarch64')
 url="https://github.com/0xRavenBlack/ShadowDate"
+options=('!debug')
 license=('MIT')
 depends=('gtk4' 'glib2')
 makedepends=('git' 'cargo' 'gtk4')
