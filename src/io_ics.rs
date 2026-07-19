@@ -1,12 +1,19 @@
 use crate::model::{Appointment, Store};
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Weekday};
+use chrono_tz::Tz;
 use ical::parser::ical::component::IcalCalendar;
 use ical::property::Property;
 use std::fs;
 use std::path::Path;
 
-/// Parse an .ics file into a Store.
+/// Hard safety caps so a malformed/giant RRULE can never hang the importer.
+const MAX_OCCURRENCES: usize = 4000;
+const MAX_EXPAND_YEARS: i32 = 20;
+
+/// Parse an .ics file into a Store. Recurring events (RRULE) are expanded into
+/// individual occurrence appointments so the existing grid/list rendering works
+/// without change. Each occurrence keeps the base event's UID in `series_uid`.
 pub fn import_ics(path: &Path) -> Result<Store> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("reading {}", path.display()))?;
@@ -15,7 +22,7 @@ pub fn import_ics(path: &Path) -> Result<Store> {
     for cal in reader {
         let cal: IcalCalendar = cal.map_err(|e| anyhow!("ics parse error: {}", e))?;
         for event in cal.events {
-            if let Some(appt) = event_to_appointment(&event.properties)? {
+            for appt in event_to_appointments(&event.properties)? {
                 store.insert(appt);
             }
         }
@@ -31,69 +38,492 @@ fn prop_value(props: &[Property], name: &str) -> Option<String> {
     get_prop(props, name).and_then(|p| p.value.clone())
 }
 
-/// iCalendar datetimes may be UTC (trailing Z) or local (with optional TZID param).
-fn parse_ical_datetime(raw: &str) -> Result<DateTime<Local>> {
-    let raw = raw.trim();
+/// Look up a parameter value (e.g. TZID) on a property. The `ical` crate stores
+/// params as `Vec<(key, Vec<value>)>` with the key uppercased.
+fn prop_param(prop: &Property, key: &str) -> Option<String> {
+    prop.params.as_ref().and_then(|ps| {
+        ps.iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .and_then(|(_, v)| v.first().cloned())
+    })
+}
+
+/// iCalendar datetimes may be:
+/// - a DATE only (`VALUE=DATE` / 8 digits) -> start of that day, local
+/// - UTC (trailing `Z`)
+/// - local, optionally tagged with a `TZID` timezone parameter
+fn parse_ical_datetime(prop: &Property) -> Result<DateTime<Local>> {
+    let raw = prop
+        .value
+        .as_deref()
+        .ok_or_else(|| anyhow!("missing datetime value"))?
+        .trim();
+    parse_datetime_raw(raw, prop_param(prop, "TZID").as_deref())
+}
+
+fn parse_datetime_raw(raw: &str, tzid: Option<&str>) -> Result<DateTime<Local>> {
     if raw.len() == 8 && raw.chars().all(|c| c.is_ascii_digit()) {
         // DATE only -> start of that day, local
         let date = NaiveDate::parse_from_str(raw, "%Y%m%d")
             .map_err(|e| anyhow!("bad date {}: {}", raw, e))?;
         let ndt = NaiveDateTime::new(date, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
-        return Ok(Local.from_local_datetime(&ndt).single().unwrap());
+        return Ok(local_from_naive(ndt));
     }
     if let Some(utc) = raw.strip_suffix('Z') {
-        let ndt = NaiveDateTime::parse_from_str(utc, "%Y%m%dT%H%M%S")
-            .or_else(|_| NaiveDateTime::parse_from_str(utc, "%Y%m%dT%H%M%S%f"))
-            .map_err(|e| anyhow!("bad utc datetime {}: {}", raw, e))?;
-        return Ok(DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-            ndt,
-            chrono::Utc,
-        )
-        .with_timezone(&Local));
+        let ndt = parse_naive_dt(utc)?;
+        return Ok(DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc)
+            .with_timezone(&Local));
     }
-    // Local date-time
-    let ndt = NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%S")
-        .or_else(|_| NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%S%f"))
-        .map_err(|e| anyhow!("bad local datetime {}: {}", raw, e))?;
-    Ok(Local
-        .from_local_datetime(&ndt)
-        .single()
-        .unwrap_or_else(|| Local.timestamp_opt(ndt.and_utc().timestamp(), 0).unwrap()))
+    // Local date-time, possibly with an explicit TZID timezone.
+    let ndt = parse_naive_dt(raw)?;
+    if let Some(tzid) = tzid {
+        if let Ok(tz) = tzid.parse::<Tz>() {
+            if let Some(dt) = tz.from_local_datetime(&ndt).single() {
+                return Ok(dt.with_timezone(&Local));
+            }
+            // Ambiguous/non-existent (DST) -> fall back to the offset before/after.
+            if let Some(dt) = tz.from_local_datetime(&ndt).earliest() {
+                return Ok(dt.with_timezone(&Local));
+            }
+            if let Some(dt) = tz.from_local_datetime(&ndt).latest() {
+                return Ok(dt.with_timezone(&Local));
+            }
+        }
+        // Unknown TZID: treat as floating local time below.
+    }
+    Ok(local_from_naive(ndt))
 }
 
-fn event_to_appointment(props: &[Property]) -> Result<Option<Appointment>> {
+fn parse_naive_dt(raw: &str) -> Result<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%S")
+        .or_else(|_| NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%S%f"))
+        .map_err(|e| anyhow!("bad datetime {}: {}", raw, e))
+}
+
+/// Build a local DateTime, falling back across DST gaps.
+fn local_from_naive(ndt: NaiveDateTime) -> DateTime<Local> {
+    Local
+        .from_local_datetime(&ndt)
+        .single()
+        .unwrap_or_else(|| Local.timestamp_opt(ndt.and_utc().timestamp(), 0).unwrap())
+}
+
+fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
     let uid = match prop_value(props, "UID") {
         Some(u) => u,
-        None => return Ok(None),
+        None => return Ok(Vec::new()),
     };
-    let title = prop_value(props, "SUMMARY").unwrap_or_default();
-    let description = prop_value(props, "DESCRIPTION")
-        .unwrap_or_default()
-        .replace("\\n", "\n")
-        .replace("\\,", ",");
-    let location = prop_value(props, "LOCATION").unwrap_or_default();
-    let start_raw = match prop_value(props, "DTSTART") {
+    let title = unescape_text(&prop_value(props, "SUMMARY").unwrap_or_default());
+    let description = unescape_text(
+        &prop_value(props, "DESCRIPTION").unwrap_or_default(),
+    );
+    let location = unescape_text(&prop_value(props, "LOCATION").unwrap_or_default());
+    let start_prop = match get_prop(props, "DTSTART") {
         Some(s) => s,
-        None => return Ok(None),
+        None => return Ok(Vec::new()),
     };
-    let start = parse_ical_datetime(&start_raw)?;
+    let start_raw = start_prop
+        .value
+        .clone()
+        .ok_or_else(|| anyhow!("DTSTART without value"))?;
+    let start = parse_ical_datetime(start_prop)?;
     let all_day = start_raw.trim().len() == 8;
 
-    let end = match prop_value(props, "DTEND") {
-        Some(e) => parse_ical_datetime(&e)?,
-        None if all_day => start + chrono::Duration::days(1),
-        None => start + chrono::Duration::hours(1),
+    let end = match get_prop(props, "DTEND") {
+        Some(e) => parse_ical_datetime(e)?,
+        None if all_day => start + Duration::days(1),
+        None => start + Duration::hours(1),
     };
 
-    Ok(Some(Appointment::with_uid(
-        uid,
-        title,
-        description,
-        location,
-        start,
-        end,
-        all_day,
-    )))
+    // Common metadata shared by every occurrence of the series.
+    let mk = |occ_uid: String, s: DateTime<Local>, e: DateTime<Local>| {
+        Appointment::with_uid_series(crate::model::NewAppointment {
+            uid: occ_uid,
+            series_uid: uid.clone(),
+            title: title.clone(),
+            description: description.clone(),
+            location: location.clone(),
+            start: s,
+            end: e,
+            all_day,
+        })
+    };
+
+    let rrule = prop_value(props, "RRULE");
+    match rrule {
+        Some(rrule) if !rrule.trim().is_empty() => {
+            let occurrences = expand_recurrence(start, end, all_day, &rrule);
+            if occurrences.is_empty() {
+                // Unsupported rule: keep just the base occurrence.
+                Ok(vec![mk(uid.clone(), start, end)])
+            } else {
+                Ok(occurrences
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (s, e))| mk(format!("{}#{}", uid, i), s, e))
+                    .collect())
+            }
+        }
+        _ => Ok(vec![mk(uid.clone(), start, end)]),
+    }
+}
+
+/// Expand a recurrence rule into (start, end) pairs. Returns an empty vec when
+/// the rule is unsupported or yields nothing. Covers the common cases:
+/// FREQ=DAILY|WEEKLY|MONTHLY|YEARLY with INTERVAL, COUNT, UNTIL, BYDAY,
+/// BYMONTHDAY and BYMONTH.
+fn expand_recurrence(
+    start: DateTime<Local>,
+    end: DateTime<Local>,
+    all_day: bool,
+    rrule: &str,
+) -> Vec<(DateTime<Local>, DateTime<Local>)> {
+    let rule = match RRule::parse(rrule) {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+    let freq = match rule.freq {
+        Some(f) => f,
+        None => return Vec::new(),
+    };
+
+    // Duration carried by each occurrence.
+    let duration = if all_day {
+        Duration::days((end.date_naive() - start.date_naive()).num_days())
+    } else {
+        end - start
+    };
+
+    let base_date = start.date_naive();
+    let base_time = start.time();
+    let interval = rule.interval.max(1);
+    let hard_stop = base_date + Duration::days((MAX_EXPAND_YEARS as i64) * 366);
+
+    let mut dates: Vec<NaiveDate> = Vec::new();
+    let mut emitted = 0usize;
+    let mut count_ok = |d: NaiveDate| -> bool {
+        if d > hard_stop {
+            return false;
+        }
+        if let Some(u) = rule.until {
+            // UNTIL is inclusive of the recurrence instant; compare against the
+            // occurrence start so all-day (exclusive-end) events are bounded by
+            // their start date, matching RFC 5545 semantics.
+            let occ_start = occ_start_datetime(d, base_time, all_day);
+            if occ_start > u {
+                return false;
+            }
+        }
+        dates.push(d);
+        emitted += 1;
+        if let Some(c) = rule.count {
+            if emitted >= c {
+                return false;
+            }
+        }
+        emitted < MAX_OCCURRENCES
+    };
+
+    match freq {
+        Freq::Daily => {
+            let mut d = base_date;
+            while count_ok(d) {
+                d += Duration::days(interval as i64);
+            }
+        }
+        Freq::Weekly => {
+            let bydays = if rule.byday.is_empty() {
+                vec![base_date.weekday()]
+            } else {
+                rule.byday.iter().map(|(wd, _)| *wd).collect()
+            };
+            let mut week = base_date;
+            while week <= hard_stop {
+                for wd in &bydays {
+                    let cand = date_of_weekday_in_week(week, *wd);
+                    if cand >= base_date && !count_ok(cand) {
+                        return finish(dates, base_date, base_time, duration, all_day);
+                    }
+                }
+                week += Duration::weeks(interval as i64);
+            }
+        }
+        Freq::Monthly => {
+            let mut year = base_date.year();
+            let mut month = base_date.month();
+            while NaiveDate::from_ymd_opt(year, month, 1).unwrap() <= hard_stop {
+                let days: Vec<NaiveDate> = if !rule.bymonthday.is_empty() {
+                    rule.bymonthday
+                        .iter()
+                        .filter_map(|&md| month_day_to_date(year, month, md))
+                        .collect()
+                } else if !rule.byday.is_empty() {
+                    rule.byday
+                        .iter()
+                        .filter_map(|(wd, pos)| nth_weekday_in_month(year, month, *wd, *pos))
+                        .collect()
+                } else {
+                    month_day_to_date(year, month, base_date.day() as i32)
+                        .into_iter()
+                        .collect()
+                };
+                for d in days {
+                    if d >= base_date && !count_ok(d) {
+                        return finish(dates, base_date, base_time, duration, all_day);
+                    }
+                }
+                // advance month by interval
+                let total = year as i64 * 12 + (month as i64 - 1) + interval as i64;
+                year = (total / 12) as i32;
+                month = (total % 12) as u32 + 1;
+            }
+        }
+        Freq::Yearly => {
+            let mut year = base_date.year();
+            while NaiveDate::from_ymd_opt(year, 1, 1).unwrap() <= hard_stop {
+                let months: Vec<u32> = if rule.bymonth.is_empty() {
+                    vec![base_date.month()]
+                } else {
+                    rule.bymonth.clone()
+                };
+                for m in months {
+                    let day: Vec<NaiveDate> = if !rule.bymonthday.is_empty() {
+                        rule.bymonthday
+                            .iter()
+                            .filter_map(|&md| month_day_to_date(year, m, md))
+                            .collect()
+                    } else if !rule.byday.is_empty() {
+                        rule.byday
+                            .iter()
+                            .filter_map(|(wd, pos)| nth_weekday_in_month(year, m, *wd, *pos))
+                            .collect()
+                    } else {
+                        month_day_to_date(year, m, base_date.day() as i32)
+                            .into_iter()
+                            .collect()
+                    };
+                    for d in day {
+                        if d >= base_date && !count_ok(d) {
+                            return finish(dates, base_date, base_time, duration, all_day);
+                        }
+                    }
+                }
+                year += interval as i32;
+            }
+        }
+    }
+
+    finish(dates, base_date, base_time, duration, all_day)
+}
+
+fn finish(
+    dates: Vec<NaiveDate>,
+    _base_date: NaiveDate,
+    base_time: chrono::NaiveTime,
+    duration: Duration,
+    all_day: bool,
+) -> Vec<(DateTime<Local>, DateTime<Local>)> {
+    dates
+        .into_iter()
+        .map(|d| {
+            let s = occ_start_datetime(d, base_time, all_day);
+            let e = occ_end_datetime(d, base_time, duration, all_day);
+            (s, e)
+        })
+        .collect()
+}
+
+fn occ_start_datetime(d: NaiveDate, t: chrono::NaiveTime, all_day: bool) -> DateTime<Local> {
+    if all_day {
+        local_from_naive(NaiveDateTime::new(d, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()))
+    } else {
+        local_from_naive(NaiveDateTime::new(d, t))
+    }
+}
+
+fn occ_end_datetime(
+    d: NaiveDate,
+    t: chrono::NaiveTime,
+    duration: Duration,
+    all_day: bool,
+) -> DateTime<Local> {
+    if all_day {
+        // All-day end is exclusive (start of the day after the last day).
+        local_from_naive(
+            NaiveDateTime::new(d + duration, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()),
+        )
+    } else {
+        occ_start_datetime(d, t, false) + duration
+    }
+}
+
+/// The date of the given weekday within the ISO week that contains `anchor`
+/// (Monday-based week).
+fn date_of_weekday_in_week(anchor: NaiveDate, wd: Weekday) -> NaiveDate {
+    let monday = anchor - Duration::days(anchor.weekday().num_days_from_monday() as i64);
+    monday + Duration::days(wd.num_days_from_monday() as i64)
+}
+
+/// Convert a (possibly negative) month-day to a concrete date, or None if invalid
+/// (e.g. Feb 30, or -1 on a 28-day Feb).
+fn month_day_to_date(year: i32, month: u32, md: i32) -> Option<NaiveDate> {
+    let day = if md > 0 {
+        md
+    } else {
+        // Negative counts from the end of the month.
+        let last = NaiveDate::from_ymd_opt(year, month + if month == 12 { 0 } else { 1 }, 1)?
+            - Duration::days(1);
+        last.day() as i32 + 1 + md
+    };
+    NaiveDate::from_ymd_opt(year, month, day as u32)
+}
+
+/// Nth weekday of a month. `pos` is 1-based (1 = first, 2 = second, ...);
+/// negative counts from the end (-1 = last). `None` means "every" (used for
+/// weekly-style BYDAY in a monthly context -> first match).
+fn nth_weekday_in_month(year: i32, month: u32, wd: Weekday, pos: Option<i32>) -> Option<NaiveDate> {
+    let first = NaiveDate::from_ymd_opt(year, month, 1)?;
+    let first_wd = date_of_weekday_in_week(first, wd);
+    // First occurrence may be in the previous month; shift forward.
+    let first_occ = if first_wd.month() == month {
+        first_wd
+    } else {
+        first_wd + Duration::weeks(1)
+    };
+    match pos {
+        Some(p) if p > 0 => Some(first_occ + Duration::weeks((p - 1) as i64)),
+        Some(p) if p < 0 => {
+            // Last (or p-th from last) occurrence.
+            let mut last = first_occ;
+            loop {
+                let next = last + Duration::weeks(1);
+                if next.month() != month {
+                    break;
+                }
+                last = next;
+            }
+            let total = ((last - first_occ).num_days() / 7) as i32 + 1;
+            let idx = (total + p) as i64;
+            if idx < 0 {
+                None
+            } else {
+                Some(first_occ + Duration::weeks(idx))
+            }
+        }
+        _ => Some(first_occ),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Freq {
+    Daily,
+    Weekly,
+    Monthly,
+    Yearly,
+}
+
+struct RRule {
+    freq: Option<Freq>,
+    interval: u32,
+    count: Option<usize>,
+    until: Option<DateTime<Local>>,
+    byday: Vec<(Weekday, Option<i32>)>,
+    bymonthday: Vec<i32>,
+    bymonth: Vec<u32>,
+}
+
+impl RRule {
+    fn parse(s: &str) -> Option<RRule> {
+        let mut r = RRule {
+            freq: None,
+            interval: 1,
+            count: None,
+            until: None,
+            byday: Vec::new(),
+            bymonthday: Vec::new(),
+            bymonth: Vec::new(),
+        };
+        for part in s.split(';') {
+            let mut kv = part.splitn(2, '=');
+            let key = kv.next()?.trim().to_ascii_uppercase();
+            let val = kv.next()?.trim();
+            match key.as_str() {
+                "FREQ" => {
+                    r.freq = match val.to_ascii_uppercase().as_str() {
+                        "DAILY" => Some(Freq::Daily),
+                        "WEEKLY" => Some(Freq::Weekly),
+                        "MONTHLY" => Some(Freq::Monthly),
+                        "YEARLY" => Some(Freq::Yearly),
+                        _ => None,
+                    }
+                }
+                "INTERVAL" => r.interval = val.parse().unwrap_or(1),
+                "COUNT" => r.count = val.parse().ok(),
+                "UNTIL" => {
+                    // UNTIL is a datetime (possibly UTC with Z) or a DATE.
+                    let prop = Property {
+                        name: "UNTIL".into(),
+                        params: None,
+                        value: Some(val.to_string()),
+                    };
+                    r.until = parse_ical_datetime(&prop).ok();
+                }
+                "BYDAY" => {
+                    for tok in val.split(',') {
+                        if let Some((wd, pos)) = parse_byday(tok.trim()) {
+                            r.byday.push((wd, pos));
+                        }
+                    }
+                }
+                "BYMONTHDAY" => {
+                    for tok in val.split(',') {
+                        if let Ok(d) = tok.trim().parse::<i32>() {
+                            r.bymonthday.push(d);
+                        }
+                    }
+                }
+                "BYMONTH" => {
+                    for tok in val.split(',') {
+                        if let Ok(m) = tok.trim().parse::<u32>() {
+                            r.bymonth.push(m);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        r.freq?;
+        Some(r)
+    }
+}
+
+/// Parse a BYDAY token like "MO", "-1MO", "2TU" into (weekday, optional position).
+fn parse_byday(tok: &str) -> Option<(Weekday, Option<i32>)> {
+    let (pos_str, wd_str) = if let Some(rest) = tok.strip_prefix(['+', '-']) {
+        let sign = if tok.starts_with('-') { -1 } else { 1 };
+        let num: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let wd = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+        (Some(sign * num.parse::<i32>().unwrap_or(1)), wd)
+    } else {
+        let num: String = tok.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let wd = tok.trim_start_matches(|c: char| c.is_ascii_digit());
+        if num.is_empty() {
+            (None, tok)
+        } else {
+            (Some(num.parse::<i32>().unwrap_or(1)), wd)
+        }
+    };
+    let weekday = match wd_str.to_ascii_uppercase().as_str() {
+        "MO" => Weekday::Mon,
+        "TU" => Weekday::Tue,
+        "WE" => Weekday::Wed,
+        "TH" => Weekday::Thu,
+        "FR" => Weekday::Fri,
+        "SA" => Weekday::Sat,
+        "SU" => Weekday::Sun,
+        _ => return None,
+    };
+    Some((weekday, pos_str))
 }
 
 /// Serialize a Store to an .ics string.
@@ -138,11 +568,25 @@ pub fn store_to_ics(store: &Store, prodid: &str) -> String {
     out
 }
 
+/// Escape text for an iCalendar value. Order matters: backslash first so the
+/// escapes we introduce are not themselves re-escaped. Carriage returns are
+/// dropped (line breaks are represented as `\n` per RFC 5545).
 fn escape_text(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace(';', "\\;")
         .replace(',', "\\,")
         .replace('\n', "\\n")
+        .replace('\r', "")
+}
+
+/// Reverse of `escape_text`. Undo the specific escapes in the opposite order
+/// they were introduced so a literal `\\;` is decoded to `\;` not `;`.
+fn unescape_text(s: &str) -> String {
+    s.replace("\\\\", "\u{0}") // placeholder to protect already-escaped backslashes
+        .replace("\\n", "\n")
+        .replace("\\;", ";")
+        .replace("\\,", ",")
+        .replace('\u{0}', "\\")
 }
 
 /// Export a store to a file.
