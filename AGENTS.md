@@ -71,6 +71,12 @@ PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
   (`.bg-portrait`, `opacity: 0.30`), aligned to the start (left), full height, uniform
   width (aspect ratio preserved). Day cells are semi-transparent (`rgba(...)`) so the
   portrait shows through.
+- **Month grid cells**: the `Grid` is `column_homogeneous` / `row_homogeneous` with a
+  fixed cell height (64px) and chip labels capped via `set_max_width_chars` +
+  ellipsize, so day cells never resize with appointment title length or count. Up to 3
+  chips are shown per cell plus a "+N more" label; a **hover tooltip** on the cell
+  lists every appointment's time, title, location, and description in full. The grid
+  scrolled window does not propagate natural size (so it fills the fixed window).
 - **Data model**: `Appointment { uid, series_uid, title, description, location,
   start, end, all_day, color_index }` with `chrono::DateTime<Local>`. `Store` is
   keyed by UID (`HashMap<uid, index>` + `Vec`). `series_uid` is the base event's UID
