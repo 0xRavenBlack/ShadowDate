@@ -129,10 +129,6 @@ button.exit-button:hover {
     border-color: #b39ddb;
 }
 
-.day-cell.other-month {
-    opacity: 0.35;
-}
-
 .day-number {
     font-weight: 600;
     font-size: 15px;
