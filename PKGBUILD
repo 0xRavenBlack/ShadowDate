@@ -27,7 +27,7 @@ build() {
 check() {
     cd "${pkgname}"
     export CARGO_HOME="${srcdir}/.cargo"
-    cargo test --frozen
+    cargo test --frozen --release
 }
 
 package() {
