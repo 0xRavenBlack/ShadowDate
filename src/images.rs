@@ -31,7 +31,7 @@ pub fn logo_texture() -> Option<gdk::Texture> {
 }
 
 pub fn portrait_texture() -> Option<gdk::Texture> {
-    texture_from(PORTRAIT_BYTES, 1024)
+    texture_from(PORTRAIT_BYTES, 512)
 }
 
 /// Small square logo for the headerbar.
