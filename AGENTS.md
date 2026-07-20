@@ -33,9 +33,9 @@ resources/
   style.css             # dark pastel theme (loaded at runtime via CssProvider)
   0xravenblack.shadowdata.desktop  # desktop entry (also installed by PKGBUILD)
   img/
-    Logo.png            # 2048x2048 app logo, embedded as the icon/branding
-    portrait_face.png   # 2048x2048, shown translucently behind the calendar grid
-    screenshot.jpg      # used by README only
+    Logo.png              # 128x128 app logo (embedded; shown at 30px, scaled to 64px texture)
+    portrait_face.png     # 1024x1024, shown translucently behind the calendar grid
+    screenshot.jpg        # used by README only
 PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
 ```
 
@@ -121,7 +121,11 @@ PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
   without updating those paths.
 - Embedded images: add new art via `include_bytes!` in `images.rs` and decode through
   a `Pixbuf` memory stream → `gdk::Texture` (the gdk4 `from_bytes` helper is not
-  available on this version).
+  available on this version). Keep source PNGs small (Logo 128×128, portrait 1024×1024):
+  `texture_from` scales the decoded pixbuf down to a display cap (logo 64px, portrait
+  512px) before uploading to a GPU texture so full-resolution sources never allocate
+  multi-megabyte textures. Re-encode assets with ImageMagick (`convert in.png -resize
+  NxN out.png`) rather than committing huge PNGs.
 - Keep CSS classes consistent with `resources/style.css` (pastel accents: lavender
   `#b39ddb`, mint `#a0e7c0`, peach `#f6c79b`, pink `#f4a3c0`, sky `#a7c7e7`, lilac
   `#c7b6e8` on charcoal `#1b1b26`).
