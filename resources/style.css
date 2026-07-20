@@ -49,14 +49,14 @@ button:hover {
 }
 
 button.suggested-action {
-    background-color: #b39ddb;
-    color: #1b1b26;
-    border-color: #c9b6e8;
+    background-color: #6a4fa3;
+    color: #f5f0ff;
+    border-color: #8467c0;
     font-weight: 600;
 }
 
 button.suggested-action:hover {
-    background-color: #c9b6e8;
+    background-color: #7a5cb8;
 }
 
 button.new-button {
@@ -190,7 +190,7 @@ button.exit-button:hover {
 
 .appt-row .appt-meta {
     font-size: 12px;
-    color: #9a9ab8;
+    color: #b8b8d0;
 }
 
 .appt-row:hover {
@@ -198,8 +198,37 @@ button.exit-button:hover {
 }
 
 .empty-label {
-    color: #6a6a88;
+    color: #9a9ab8;
     font-style: italic;
+}
+
+/* All-day marker: a small pill on chips and rows */
+.appt-chip.all-day {
+    font-style: italic;
+}
+
+.appt-row.all-day {
+    border-left-style: dashed;
+}
+
+.all-day-tag {
+    font-size: 10px;
+    font-weight: 700;
+    color: #a0e7c0;
+    letter-spacing: 0.4px;
+}
+
+/* Empty-day call to action */
+.empty-cta {
+    background-color: #2f6b3a;
+    color: #eaf6ec;
+    border-color: #3f8a4e;
+    font-weight: 600;
+    margin-top: 10px;
+}
+
+.empty-cta:hover {
+    background-color: #3a8048;
 }
 
 /* Form dialog */
@@ -230,13 +259,42 @@ button.exit-button:hover {
 }
 
 .form-label {
-    color: #9a9ab8;
+    color: #b8b8d0;
     font-size: 13px;
     font-weight: 600;
 }
 
 .time-box {
-    margin-top: 2px;
+    margin-top: 6px;
+}
+
+.time-caption {
+    font-size: 12px;
+    font-weight: 700;
+    color: #b8b8d0;
+    letter-spacing: 0.4px;
+}
+
+.time-row-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e6e6f0;
+    margin-right: 6px;
+}
+
+.time-colon {
+    font-size: 18px;
+    font-weight: 700;
+    color: #cfcfe6;
+}
+
+.time-box spinbutton {
+    font-size: 16px;
+}
+
+.time-box spinbutton entry {
+    font-size: 16px;
+    padding: 6px 4px;
 }
 
 /* Dialog action buttons (Cancel / Save): give them room to breathe */
@@ -272,6 +330,18 @@ button.exit-button:hover {
 
 entry:focus-within {
     border-color: #b39ddb;
+}
+
+/* Consistent keyboard-focus ring across interactive elements */
+button:focus-visible,
+.day-cell:focus-visible,
+.appt-row:focus-visible,
+row:focus-visible,
+checkbutton:focus-visible,
+calendar:focus-visible,
+spinbutton:focus-visible {
+    outline: 2px solid #b39ddb;
+    outline-offset: 1px;
 }
 
 .label, label {

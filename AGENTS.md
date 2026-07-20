@@ -22,7 +22,7 @@ src/
   model.rs              # Appointment struct + in-memory Store (keyed by UID)
   io_ics.rs             # parse/serialize .ics, import/export, load/save, merge
   calendar_view.rs      # month grid, nav, day list, responsive two-pane, background portrait
-  form_dialog.rs        # create/edit/delete appointment dialog (620x520, non-resizable, fits the window)
+  form_dialog.rs        # create/edit/delete appointment dialog (620x520, non-resizable, fits the window); Cancel/Save live in the form (right-aligned), time uses a SpinButton grid, Delete asks for confirmation
   i18n.rs               # translations (EN/DE/FR/ES/ZH/JA/PL), date + weekday formatting
   images.rs             # embedded logo + portrait (include_bytes!), decoded to gdk::Texture
   calendar_view.rs / form_dialog.rs / i18n.rs / images.rs use `calendar::model` (the lib crate)
@@ -99,14 +99,21 @@ PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
   single submitted (now non-recurring) appointment.
 - **GTK4 dialogs are async**: `Dialog::run()` does not exist in gtk4 0.11; use
   `run_async` / `connect_response`. The appointment form delivers its result via a
-  `Box<dyn Fn(Option<Appointment>)>` callback (never blocks). On validation error the
-  form stays open so the user can correct input.
+  `  Box<dyn Fn(Option<Appointment>)>` callback (never blocks). On validation error the
+  form stays open so the user can correct input. The form uses a `Grid` for the Start/
+  End time (`SpinButton`s with "Hours"/"Minutes" column headers), Cancel + Save are a
+  right-aligned button group inside the form (Save = `.suggested-action`), and **Delete**
+  opens a `MessageDialog` confirmation before removing the appointment. All-day events
+  get a non-color cue (`◆` on chips, a dashed left border + localized "All day" tag on
+  rows). Empty days in the side list show a "+ Add appointment" CTA (uses `on_new`).
+
 - **i18n**: `src/i18n.rs` detects the language from `LC_ALL`/`LC_MESSAGES`/`LANG`
-  (cached once via `OnceLock`) and provides `t(key)` plus helpers `must_be_number`,
-  `more_label`, `weekday_abbrevs`, `format_month_year`, and `format_date` (each with
-  per-locale ordering). Supported: English, German, French, Spanish, Chinese,
-  Japanese, Polish. The embedded `ContentFit` is unavailable on the current gtk4
-  feature set, so sizing uses `set_keep_aspect_ratio`/`set_can_shrink`.
+  (cached once via `OnceLock`) and provides `t(key)` plus helpers `more_label`,
+  `weekday_abbrevs`, `format_month_year`, and `format_date` (each with per-locale
+  ordering). Note: time entry uses `SpinButton`s, so `must_be_number` was removed.
+  Supported: English, German, French, Spanish, Chinese, Japanese, Polish. The embedded
+  `ContentFit` is unavailable on the current gtk4 feature set, so sizing uses
+  `set_keep_aspect_ratio`/`set_can_shrink`.
 
 ## Conventions
 

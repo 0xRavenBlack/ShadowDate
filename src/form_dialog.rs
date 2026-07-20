@@ -3,7 +3,7 @@ use chrono::{Datelike, NaiveDate, Timelike};
 use gtk::prelude::*;
 use gtk::{
     Box, Button, ButtonsType, Calendar, CheckButton, Dialog, Entry, Label, MessageDialog,
-    ResponseType,
+    ResponseType, SpinButton,
 };
 
 /// Show a form dialog to create or edit an appointment.
@@ -27,10 +27,7 @@ pub fn run_appointment_dialog(
         }),
         Some(parent),
         gtk::DialogFlags::MODAL,
-        &[
-            (crate::i18n::t("cancel"), ResponseType::Cancel),
-            (crate::i18n::t("save"), ResponseType::Accept),
-        ],
+        &[],
     );
     dialog.set_default_response(ResponseType::Accept);
     // Keep the dialog within the fixed application window (1024x560) and avoid
@@ -71,10 +68,10 @@ pub fn run_appointment_dialog(
         .build();
 
     let cal = Calendar::builder().hexpand(true).build();
-    let start_hour = Entry::builder().placeholder_text("HH").width_chars(3).max_length(2).build();
-    let start_min = Entry::builder().placeholder_text("MM").width_chars(3).max_length(2).build();
-    let end_hour = Entry::builder().placeholder_text("HH").width_chars(3).max_length(2).build();
-    let end_min = Entry::builder().placeholder_text("MM").width_chars(3).max_length(2).build();
+    let start_hour = time_spin(23.0);
+    let start_min = time_spin(59.0);
+    let end_hour = time_spin(23.0);
+    let end_min = time_spin(59.0);
     let all_day = CheckButton::builder().label(crate::i18n::t("all_day")).build();
 
     if let Some(a) = existing {
@@ -82,17 +79,17 @@ pub fn run_appointment_dialog(
         desc_entry.set_text(&a.description);
         loc_entry.set_text(&a.location);
         select_calendar_day(&cal, a.start.date_naive());
-        start_hour.set_text(&format!("{:02}", a.start.hour()));
-        start_min.set_text(&format!("{:02}", a.start.minute()));
-        end_hour.set_text(&format!("{:02}", a.end.hour()));
-        end_min.set_text(&format!("{:02}", a.end.minute()));
+        start_hour.set_value(a.start.hour() as f64);
+        start_min.set_value(a.start.minute() as f64);
+        end_hour.set_value(a.end.hour() as f64);
+        end_min.set_value(a.end.minute() as f64);
         all_day.set_active(a.all_day);
     } else {
         select_calendar_day(&cal, initial_date);
-        start_hour.set_text("09");
-        start_min.set_text("00");
-        end_hour.set_text("10");
-        end_min.set_text("00");
+        start_hour.set_value(9.0);
+        start_min.set_value(0.0);
+        end_hour.set_value(10.0);
+        end_min.set_value(0.0);
     }
 
     // --- Details section ---
@@ -122,29 +119,71 @@ pub fn run_appointment_dialog(
     cal.set_hexpand(true);
     dt_section.append(&cal);
 
-    let time_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    time_box.add_css_class("time-box");
-    time_box.set_halign(gtk::Align::Start);
+    // Time inputs laid out in a grid: column headers (Hours / Minutes) with a
+    // row each for Start and End so the two times align and read clearly.
+    let time_grid = gtk::Grid::new();
+    time_grid.add_css_class("time-box");
+    time_grid.set_halign(gtk::Align::Start);
+    time_grid.set_row_spacing(8);
+    time_grid.set_column_spacing(8);
+
+    let hours_hdr = Label::new(Some(crate::i18n::t("hours")));
+    hours_hdr.add_css_class("time-caption");
+    hours_hdr.set_xalign(0.5);
+    let mins_hdr = Label::new(Some(crate::i18n::t("minutes")));
+    mins_hdr.add_css_class("time-caption");
+    mins_hdr.set_xalign(0.5);
+    time_grid.attach(&hours_hdr, 1, 0, 1, 1);
+    time_grid.attach(&mins_hdr, 3, 0, 1, 1);
 
     let start_lbl = Label::new(Some(crate::i18n::t("start")));
-    start_lbl.set_width_chars(6);
+    start_lbl.add_css_class("time-row-label");
     start_lbl.set_xalign(0.0);
-    time_box.append(&start_lbl);
-    time_box.append(&start_hour);
-    time_box.append(&Label::new(Some(":")));
-    time_box.append(&start_min);
+    start_lbl.set_valign(gtk::Align::Center);
+    let start_colon = Label::new(Some(":"));
+    start_colon.add_css_class("time-colon");
+    time_grid.attach(&start_lbl, 0, 1, 1, 1);
+    time_grid.attach(&start_hour, 1, 1, 1, 1);
+    time_grid.attach(&start_colon, 2, 1, 1, 1);
+    time_grid.attach(&start_min, 3, 1, 1, 1);
 
     let end_lbl = Label::new(Some(crate::i18n::t("end")));
-    end_lbl.set_width_chars(5);
+    end_lbl.add_css_class("time-row-label");
     end_lbl.set_xalign(0.0);
-    end_lbl.set_margin_start(16);
-    time_box.append(&end_lbl);
-    time_box.append(&end_hour);
-    time_box.append(&Label::new(Some(":")));
-    time_box.append(&end_min);
+    end_lbl.set_valign(gtk::Align::Center);
+    let end_colon = Label::new(Some(":"));
+    end_colon.add_css_class("time-colon");
+    time_grid.attach(&end_lbl, 0, 2, 1, 1);
+    time_grid.attach(&end_hour, 1, 2, 1, 1);
+    time_grid.attach(&end_colon, 2, 2, 1, 1);
+    time_grid.attach(&end_min, 3, 2, 1, 1);
 
-    dt_section.append(&time_box);
+    dt_section.append(&time_grid);
     dt_section.append(&all_day);
+
+    // Cancel + Save action group, right-aligned under the calendar / date-time
+    // section (rather than in the dialog's action bar).
+    let action_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    action_row.set_halign(gtk::Align::End);
+    action_row.set_margin_top(6);
+    let cancel_btn = Button::with_label(crate::i18n::t("cancel"));
+    {
+        let dialog = dialog.clone();
+        cancel_btn.connect_clicked(move |_| {
+            dialog.response(ResponseType::Cancel);
+        });
+    }
+    let save_btn = Button::with_label(crate::i18n::t("save"));
+    save_btn.add_css_class("suggested-action");
+    {
+        let dialog = dialog.clone();
+        save_btn.connect_clicked(move |_| {
+            dialog.response(ResponseType::Accept);
+        });
+    }
+    action_row.append(&cancel_btn);
+    action_row.append(&save_btn);
+    dt_section.append(&action_row);
     form.append(&dt_section);
 
     // Grey out the time inputs while "All day" is active.
@@ -171,11 +210,33 @@ pub fn run_appointment_dialog(
         let del_btn = Button::with_label(crate::i18n::t("delete"));
         del_btn.add_css_class("delete-button");
         let on_result = on_result.clone();
+        let on_delete = std::rc::Rc::new(on_delete);
         del_btn.connect_clicked(move |b: &Button| {
             let dialog = b.root().and_downcast::<Dialog>().unwrap();
-            dialog.close();
-            on_delete();
-            on_result(None);
+            let confirm = MessageDialog::new(
+                Some(&dialog),
+                gtk::DialogFlags::MODAL,
+                gtk::MessageType::Warning,
+                ButtonsType::None,
+                crate::i18n::t("confirm_delete_title"),
+            );
+            confirm.set_secondary_text(Some(crate::i18n::t("confirm_delete_body")));
+            confirm.add_button(crate::i18n::t("cancel"), ResponseType::Cancel);
+            let del_resp = confirm.add_button(crate::i18n::t("delete"), ResponseType::Accept);
+            del_resp.add_css_class("delete-button");
+            confirm.set_default_response(ResponseType::Cancel);
+            let dialog = dialog.clone();
+            let on_delete = on_delete.clone();
+            let on_result = on_result.clone();
+            confirm.connect_response(move |c, resp| {
+                c.close();
+                if resp == ResponseType::Accept {
+                    dialog.close();
+                    on_delete();
+                    on_result(None);
+                }
+            });
+            confirm.present();
         });
         del_row.append(&del_btn);
         form.append(&del_row);
@@ -232,10 +293,10 @@ struct FormFields<'a> {
     desc: &'a Entry,
     loc: &'a Entry,
     cal: &'a Calendar,
-    sh: &'a Entry,
-    sm: &'a Entry,
-    eh: &'a Entry,
-    em: &'a Entry,
+    sh: &'a SpinButton,
+    sm: &'a SpinButton,
+    eh: &'a SpinButton,
+    em: &'a SpinButton,
     all_day: &'a CheckButton,
 }
 
@@ -258,17 +319,11 @@ fn build_appointment(
     let (sh_v, sm_v, eh_v, em_v) = if all {
         (0, 0, 23, 59)
     } else {
-        let parse = |e: &Entry, key: &str| -> Result<u32, String> {
-            e.text()
-                .trim()
-                .parse::<u32>()
-                .map_err(|_| crate::i18n::must_be_number(key))
-        };
         (
-            parse(f.sh, "start_hour")?,
-            parse(f.sm, "start_min")?,
-            parse(f.eh, "end_hour")?,
-            parse(f.em, "end_min")?,
+            f.sh.value_as_int() as u32,
+            f.sm.value_as_int() as u32,
+            f.eh.value_as_int() as u32,
+            f.em.value_as_int() as u32,
         )
     };
 
@@ -307,6 +362,22 @@ fn build_appointment(
         )
     };
     Ok(appt)
+}
+
+/// A zero-padded, wrapping spin button for HH or MM time entry. Constraining
+/// input to a valid range prevents the invalid-time errors that free-text
+/// entries allowed, and the two-digit display keeps times aligned.
+fn time_spin(max: f64) -> SpinButton {
+    let sb = SpinButton::with_range(0.0, max, 1.0);
+    sb.set_digits(0);
+    sb.set_numeric(true);
+    sb.set_wrap(true);
+    sb.set_width_chars(2);
+    sb.connect_output(|sb| {
+        sb.set_text(&format!("{:02}", sb.value_as_int()));
+        gtk::glib::Propagation::Stop
+    });
+    sb
 }
 
 fn section_box() -> gtk::Box {

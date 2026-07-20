@@ -151,6 +151,7 @@ impl CalendarView {
             let lb = self.list_box.clone();
             let dl = self.day_label.clone();
             let oe = self.on_edit.clone();
+            let on = self.on_new.clone();
             let sto = self.store.clone();
             self.prev_btn.connect_clicked(move |_| {
                 let mut s = st.borrow_mut();
@@ -161,7 +162,7 @@ impl CalendarView {
                     s.view_month -= 1;
                 }
                 drop(s);
-                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe);
+                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe, &on);
             });
         }
         {
@@ -171,6 +172,7 @@ impl CalendarView {
             let lb = self.list_box.clone();
             let dl = self.day_label.clone();
             let oe = self.on_edit.clone();
+            let on = self.on_new.clone();
             let sto = self.store.clone();
             self.next_btn.connect_clicked(move |_| {
                 let mut s = st.borrow_mut();
@@ -181,7 +183,7 @@ impl CalendarView {
                     s.view_month += 1;
                 }
                 drop(s);
-                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe);
+                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe, &on);
             });
         }
         {
@@ -191,6 +193,7 @@ impl CalendarView {
             let lb = self.list_box.clone();
             let dl = self.day_label.clone();
             let oe = self.on_edit.clone();
+            let on = self.on_new.clone();
             let sto = self.store.clone();
             self.today_btn.connect_clicked(move |_| {
                 let t = today();
@@ -200,7 +203,7 @@ impl CalendarView {
                     s.view_month = t.month();
                     s.selected = t;
                 }
-                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe);
+                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe, &on);
             });
         }
         {
@@ -235,10 +238,12 @@ impl CalendarView {
             &self.state,
             &self.store,
             &self.on_edit,
+            &self.on_new,
         );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn refresh_all(
     grid: &Grid,
     month_label: &Label,
@@ -247,11 +252,13 @@ fn refresh_all(
     state: &Rc<RefCell<ViewState>>,
     store: &Rc<RefCell<Store>>,
     on_edit: &Rc<dyn Fn(&Appointment) + 'static>,
+    on_new: &Rc<dyn Fn(NaiveDate) + 'static>,
 ) {
-    render_month(grid, month_label, list_box, day_label, state, store, on_edit);
-    render_day(list_box, day_label, state, store, on_edit);
+    render_month(grid, month_label, list_box, day_label, state, store, on_edit, on_new);
+    render_day(list_box, day_label, state, store, on_edit, on_new);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_month(
     grid: &Grid,
     month_label: &Label,
@@ -260,6 +267,7 @@ fn render_month(
     state: &Rc<RefCell<ViewState>>,
     store: &Rc<RefCell<Store>>,
     on_edit: &Rc<dyn Fn(&Appointment) + 'static>,
+    on_new: &Rc<dyn Fn(NaiveDate) + 'static>,
 ) {
     while let Some(child) = grid.first_child() {
         grid.remove(&child);
@@ -313,6 +321,7 @@ fn render_month(
         let lb = list_box.clone();
         let dl = day_label.clone();
         let oe = on_edit.clone();
+        let on = on_new.clone();
         let sto = store.clone();
         // Cells are rebuilt on every render, so a fresh click gesture is
         // attached per cell; the old cell (and its controller) is dropped
@@ -320,7 +329,7 @@ fn render_month(
         let ev = gtk::GestureClick::new();
         ev.connect_pressed(move |_, _, _, _| {
             st.borrow_mut().selected = date;
-            refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe);
+            refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe, &on);
         });
         cell.add_controller(ev);
         grid.attach(&cell, c, r, 1, 1);
@@ -333,6 +342,7 @@ fn render_day(
     state: &Rc<RefCell<ViewState>>,
     store: &Rc<RefCell<Store>>,
     on_edit: &Rc<dyn Fn(&Appointment) + 'static>,
+    on_new: &Rc<dyn Fn(NaiveDate) + 'static>,
 ) {
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
@@ -347,6 +357,7 @@ fn render_day(
         let lb = list_box.clone();
         let dl = day_label.clone();
         let on_edit = on_edit.clone();
+        let on_new = on_new.clone();
         let sto = store.clone();
         // Rows are rebuilt on each render; the old row and its controller drop
         // when removed from the list box above, so attaching a fresh gesture
@@ -357,7 +368,7 @@ fn render_day(
             if let Some(appt) = appt_opt {
                 on_edit(&appt);
             }
-            render_day(&lb, &dl, &st, &sto, &on_edit);
+            render_day(&lb, &dl, &st, &sto, &on_edit, &on_new);
         });
         row.add_controller(ev);
         let lbrow = ListBoxRow::new();
@@ -365,11 +376,25 @@ fn render_day(
         list_box.append(&lbrow);
     }
     if appts.is_empty() {
+        let empty_box = Box::new(gtk::Orientation::Vertical, 6);
+        empty_box.set_halign(gtk::Align::Center);
+        empty_box.set_margin_top(16);
         let empty = Label::new(Some(crate::i18n::t("no_appointments")));
         empty.add_css_class("empty-label");
+        empty_box.append(&empty);
+
+        let add_btn = Button::with_label(crate::i18n::t("add_appointment"));
+        add_btn.add_css_class("empty-cta");
+        let selected = s.selected;
+        let on_new = on_new.clone();
+        add_btn.connect_clicked(move |_| {
+            on_new(selected);
+        });
+        empty_box.append(&add_btn);
+
         let lbrow = ListBoxRow::new();
-        lbrow.set_child(Some(&empty));
-        lbrow.set_sensitive(false);
+        lbrow.set_child(Some(&empty_box));
+        lbrow.set_selectable(false);
         list_box.append(&lbrow);
     }
 }
@@ -422,9 +447,13 @@ fn build_cell(
     num_center.set_center_widget(Some(&num));
     cell.append(&num_center);
     for a in appts.iter().take(3) {
-        let c = Label::new(Some(&a.title));
+        let prefix = if a.all_day { "◆ " } else { "" };
+        let c = Label::new(Some(&format!("{}{}", prefix, a.title)));
         c.add_css_class("appt-chip");
         c.add_css_class(&format!("c{}", a.color_index % 6));
+        if a.all_day {
+            c.add_css_class("all-day");
+        }
         c.set_xalign(0.0);
         c.set_hexpand(true);
         c.set_max_width_chars(14);
@@ -459,10 +488,19 @@ fn build_appt_row(a: &Appointment) -> Box {
     let row = Box::new(gtk::Orientation::Vertical, 2);
     row.add_css_class("appt-row");
     row.add_css_class(&format!("c{}", a.color_index));
+    if a.all_day {
+        row.add_css_class("all-day");
+    }
     let title = Label::new(Some(&a.title));
     title.add_css_class("appt-title");
     title.set_xalign(0.0);
     row.append(&title);
+    if a.all_day {
+        let tag = Label::new(Some(crate::i18n::t("all_day_short")));
+        tag.add_css_class("all-day-tag");
+        tag.set_xalign(0.0);
+        row.append(&tag);
+    }
     let meta = Label::new(Some(&format!("{}   {}", a.time_label(), a.location)));
     meta.add_css_class("appt-meta");
     meta.set_xalign(0.0);

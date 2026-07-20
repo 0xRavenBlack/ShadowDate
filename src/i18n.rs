@@ -182,41 +182,47 @@ pub fn t(key: &str) -> &'static str {
             "無効な日付です。",
             "Nieprawidłowa data.",
         ),
-        "start_hour" => (
-            "Start hour",
-            "Startstunde",
-            "Heure de début",
-            "Hora de inicio",
-            "开始小时",
-            "開始時",
-            "Godzina rozpoczęcia",
+        "confirm_delete_title" => (
+            "Delete appointment?",
+            "Termin löschen?",
+            "Supprimer le rendez-vous ?",
+            "¿Eliminar la cita?",
+            "删除约会？",
+            "予定を削除しますか？",
+            "Usunąć wydarzenie?",
         ),
-        "start_min" => (
-            "Start minute",
-            "Startminute",
-            "Minute de début",
-            "Minuto de inicio",
-            "开始分钟",
-            "開始分",
-            "Minuta rozpoczęcia",
+        "confirm_delete_body" => (
+            "This will permanently delete the appointment. This cannot be undone.",
+            "Dadurch wird der Termin dauerhaft gelöscht. Dies kann nicht rückgängig gemacht werden.",
+            "Le rendez-vous sera définitivement supprimé. Cette action est irréversible.",
+            "Esto eliminará la cita de forma permanente. No se puede deshacer.",
+            "这将永久删除该约会。此操作无法撤销。",
+            "予定を完全に削除します。この操作は元に戻せません。",
+            "Spowoduje to trwałe usunięcie wydarzenia. Nie można tego cofnąć.",
         ),
-        "end_hour" => (
-            "End hour",
-            "Endstunde",
-            "Heure de fin",
-            "Hora de fin",
-            "结束小时",
-            "終了時",
-            "Godzina zakończenia",
+        "add_appointment" => (
+            "+ Add appointment",
+            "+ Termin hinzufügen",
+            "+ Ajouter un rendez-vous",
+            "+ Añadir cita",
+            "+ 添加约会",
+            "+ 予定を追加",
+            "+ Dodaj wydarzenie",
         ),
-        "end_min" => (
-            "End minute",
-            "Endminute",
-            "Minute de fin",
-            "Minuto de fin",
-            "结束分钟",
-            "終了分",
-            "Minuta zakończenia",
+        "all_day_short" => (
+            "All day",
+            "Ganztägig",
+            "Journée",
+            "Todo el día",
+            "全天",
+            "終日",
+            "Cały dzień",
+        ),
+        "hours" => (
+            "Hours", "Stunden", "Heures", "Horas", "小时", "時", "Godziny",
+        ),
+        "minutes" => (
+            "Minutes", "Minuten", "Minutes", "Minutos", "分钟", "分", "Minuty",
         ),
         _ => ("???", "???", "???", "???", "???", "???", "???"),
     };
@@ -228,20 +234,6 @@ pub fn t(key: &str) -> &'static str {
         Lang::Zh => zh,
         Lang::Ja => ja,
         Lang::Pl => pl,
-    }
-}
-
-/// "%d must be a number." style message, using a localized field name.
-pub fn must_be_number(field_key: &str) -> String {
-    let field = t(field_key);
-    match lang() {
-        Lang::En => format!("{} must be a number.", field),
-        Lang::De => format!("{} muss eine Zahl sein.", field),
-        Lang::Fr => format!("{} doit être un nombre.", field),
-        Lang::Es => format!("{} debe ser un número.", field),
-        Lang::Zh => format!("{}必须是数字。", field),
-        Lang::Ja => format!("{}は数値でなければなりません。", field),
-        Lang::Pl => format!("{} musi być liczbą.", field),
     }
 }
 
