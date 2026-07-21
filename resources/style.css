@@ -113,6 +113,7 @@ button.exit-button:hover {
     border: 1px solid rgba(46, 46, 68, 0.8);
     border-radius: 10px;
     padding: 6px;
+    min-height: 38px;
     color: #cfcfe6;
 }
 
@@ -388,17 +389,6 @@ headerbar {
 
 headerbar box {
     min-height: 0;
-}
-
-/* Day cells: keep small and legible on narrow windows */
-.day-cell {
-    min-height: 38px;
-    padding: 3px;
-}
-
-.appt-chip {
-    font-size: 10px;
-    padding: 1px 4px;
 }
 
 /* Right list column width when horizontal */

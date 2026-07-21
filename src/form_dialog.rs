@@ -188,7 +188,9 @@ pub fn run_appointment_dialog(
         let on_result = on_result.clone();
         let on_delete = std::rc::Rc::new(on_delete);
         del_btn.connect_clicked(move |b: &Button| {
-            let dialog = b.root().and_downcast::<Dialog>().unwrap();
+            let Some(dialog) = b.root().and_downcast::<Dialog>() else {
+                return;
+            };
             let confirm = MessageDialog::new(
                 Some(&dialog),
                 gtk::DialogFlags::MODAL,

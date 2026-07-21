@@ -4,6 +4,7 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveDateTime, Time
 use chrono_tz::Tz;
 use ical::parser::ical::component::IcalCalendar;
 use ical::property::Property;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -89,7 +90,10 @@ fn parse_datetime_raw(raw: &str, tzid: Option<&str>) -> Result<DateTime<Local>> 
                 return Ok(dt.with_timezone(&Local));
             }
         }
-        // Unknown TZID: treat as floating local time below.
+        eprintln!(
+            "warning: unknown or unresolvable TZID '{}', treating '{}' as floating local time",
+            tzid, raw
+        );
     }
     Ok(local_from_naive(ndt))
 }
@@ -152,7 +156,17 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
     let rrule = prop_value(props, "RRULE");
     match rrule {
         Some(rrule) if !rrule.trim().is_empty() => {
-            let occurrences = expand_recurrence(start, end, all_day, &rrule);
+            let exclude: HashSet<NaiveDate> = props
+                .iter()
+                .filter(|p| p.name.eq_ignore_ascii_case("EXDATE"))
+                .flat_map(parse_date_list)
+                .collect();
+            let extra: Vec<NaiveDate> = props
+                .iter()
+                .filter(|p| p.name.eq_ignore_ascii_case("RDATE"))
+                .flat_map(parse_date_list)
+                .collect();
+            let occurrences = expand_recurrence(start, end, all_day, &rrule, &exclude, &extra);
             if occurrences.is_empty() {
                 // Unsupported rule: keep just the base occurrence.
                 Ok(vec![mk(uid.clone(), start, end)])
@@ -171,12 +185,15 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
 /// Expand a recurrence rule into (start, end) pairs. Returns an empty vec when
 /// the rule is unsupported or yields nothing. Covers the common cases:
 /// FREQ=DAILY|WEEKLY|MONTHLY|YEARLY with INTERVAL, COUNT, UNTIL, BYDAY,
-/// BYMONTHDAY and BYMONTH.
+/// BYMONTHDAY and BYMONTH. Dates in `exclude` (from EXDATE) are removed from
+/// the result; dates in `extra` (from RDATE) are appended.
 fn expand_recurrence(
     start: DateTime<Local>,
     end: DateTime<Local>,
     all_day: bool,
     rrule: &str,
+    exclude: &HashSet<NaiveDate>,
+    extra: &[NaiveDate],
 ) -> Vec<(DateTime<Local>, DateTime<Local>)> {
     let rule = match RRule::parse(rrule) {
         Some(r) => r,
@@ -312,6 +329,17 @@ fn expand_recurrence(
             }
         }
     }
+
+    // Apply EXDATE: remove excluded dates from the expanded set.
+    dates.retain(|d| !exclude.contains(d));
+    // Apply RDATE: append extra dates that are >= base_date and not already present.
+    for &d in extra {
+        if d >= base_date && !dates.contains(&d) {
+            dates.push(d);
+        }
+    }
+    dates.sort();
+    dates.dedup();
 
     finish(dates, base_date, base_time, duration, all_day)
 }
@@ -570,23 +598,54 @@ pub fn store_to_ics(store: &Store, prodid: &str) -> String {
 
 /// Escape text for an iCalendar value. Order matters: backslash first so the
 /// escapes we introduce are not themselves re-escaped. Carriage returns are
-/// dropped (line breaks are represented as `\n` per RFC 5545).
+/// escaped as `\r` per RFC 5545 Section 3.3.11.
 fn escape_text(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace(';', "\\;")
         .replace(',', "\\,")
+        .replace('\r', "\\r")
         .replace('\n', "\\n")
-        .replace('\r', "")
 }
 
 /// Reverse of `escape_text`. Undo the specific escapes in the opposite order
 /// they were introduced so a literal `\\;` is decoded to `\;` not `;`.
 fn unescape_text(s: &str) -> String {
     s.replace("\\\\", "\u{0}") // placeholder to protect already-escaped backslashes
+        .replace("\\r", "\r")
         .replace("\\n", "\n")
         .replace("\\;", ";")
         .replace("\\,", ",")
         .replace('\u{0}', "\\")
+}
+
+/// Parse a comma-separated list of DATE or DATE-TIME values (used by EXDATE
+/// and RDATE) into a list of `NaiveDate`s. DATE values (8 digits) are parsed
+/// directly; DATE-TIME values use only the date portion.
+fn parse_date_list(prop: &Property) -> Vec<NaiveDate> {
+    let val = match &prop.value {
+        Some(v) => v,
+        None => return Vec::new(),
+    };
+    val.split(',')
+        .filter_map(|tok| {
+            let tok = tok.trim();
+            if tok.is_empty() {
+                return None;
+            }
+            if tok.len() == 8 && tok.chars().all(|c| c.is_ascii_digit()) {
+                return NaiveDate::parse_from_str(tok, "%Y%m%d").ok();
+            }
+            // DATE-TIME: parse and extract the date portion.
+            let prop = Property {
+                name: "DT".into(),
+                params: None,
+                value: Some(tok.to_string()),
+            };
+            parse_ical_datetime(&prop)
+                .ok()
+                .map(|dt| dt.date_naive())
+        })
+        .collect()
 }
 
 /// Export a store to a file.
@@ -613,8 +672,22 @@ pub fn save_store(store: &Store, path: &Path) -> Result<()> {
     export_ics(store, path, "-//ravenblack//calendar//EN")
 }
 
-/// Merge another store into this one (imported items replace same UID).
+/// Merge another store into this one. For each series present in `other`
+/// (identified by `series_uid`), first remove all existing occurrences of that
+/// series from `base` so that a modified RRULE does not leave orphaned old
+/// occurrences behind.
 pub fn merge_store(base: &mut Store, other: Store) {
+    let series_uids: Vec<String> = other
+        .items
+        .iter()
+        .map(|a| a.series_uid.clone())
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    for uid in &series_uids {
+        if seen.insert(uid.clone()) {
+            base.remove_series(uid);
+        }
+    }
     for a in other.items {
         base.insert(a);
     }

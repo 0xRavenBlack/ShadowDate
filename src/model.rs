@@ -76,9 +76,9 @@ impl Appointment {
         self.start.date_naive()
     }
 
-    pub fn time_label(&self) -> String {
+    pub fn time_label(&self, all_day_str: &str) -> String {
         if self.all_day {
-            "All day".to_string()
+            all_day_str.to_string()
         } else {
             format!(
                 "{} – {}",

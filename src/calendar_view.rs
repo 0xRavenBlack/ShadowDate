@@ -18,7 +18,7 @@ pub struct CalendarView {
     month_label: Label,
     day_label: Label,
     content: Box,
-    right_col: Box,
+    pub right_col: Box,
     state: Rc<RefCell<ViewState>>,
     store: Rc<RefCell<Store>>,
     on_edit: Rc<dyn Fn(&Appointment) + 'static>,
@@ -469,7 +469,7 @@ fn build_cell(
         let detail: Vec<String> = appts
             .iter()
             .map(|a| {
-                let mut s = format!("• {}  {}", a.time_label(), a.title);
+                let mut s = format!("• {}  {}", a.time_label(crate::i18n::t("all_day_short")), a.title);
                 if !a.location.is_empty() {
                     s.push_str(&format!("  @ {}", a.location));
                 }
@@ -501,7 +501,7 @@ fn build_appt_row(a: &Appointment) -> Box {
         tag.set_xalign(0.0);
         row.append(&tag);
     }
-    let meta = Label::new(Some(&format!("{}   {}", a.time_label(), a.location)));
+    let meta = Label::new(Some(&format!("{}   {}", a.time_label(crate::i18n::t("all_day_short")), a.location)));
     meta.add_css_class("appt-meta");
     meta.set_xalign(0.0);
     row.append(&meta);

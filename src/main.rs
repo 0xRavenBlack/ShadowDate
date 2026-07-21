@@ -191,17 +191,14 @@ fn build_ui(app: &Application) {
     window.set_child(Some(&cv.widget));
 
     // Responsive: stack panes vertically when the window is narrow.
-    // Poll on the main loop (main-thread only, no Send bound) so we can react to
-    // live resizes; the view is held in Rc<RefCell<...>> and is not Send.
+    // Listen for width property changes on the window.
     {
-        let win = window.clone();
         let vref = view_ref.clone();
-        gtk::glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
+        window.connect_notify_local(Some("default-width"), move |win, _| {
             let w = win.width();
             if let Some(v) = vref.borrow().as_ref() {
                 v.apply_responsive(w);
             }
-            gtk::glib::ControlFlow::Continue
         });
     }
 
