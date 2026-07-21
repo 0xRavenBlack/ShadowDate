@@ -1,6 +1,6 @@
 use crate::model::{Appointment, Store};
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Weekday};
+use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime, TimeDelta, TimeZone, Weekday};
 use chrono_tz::Tz;
 use ical::parser::ical::component::IcalCalendar;
 use ical::property::Property;
@@ -67,7 +67,8 @@ fn parse_datetime_raw(raw: &str, tzid: Option<&str>) -> Result<DateTime<Local>> 
         // DATE only -> start of that day, local
         let date = NaiveDate::parse_from_str(raw, "%Y%m%d")
             .map_err(|e| anyhow!("bad date {}: {}", raw, e))?;
-        let ndt = NaiveDateTime::new(date, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        let ndt = NaiveDateTime::new(date, chrono::NaiveTime::from_hms_opt(0, 0, 0)
+            .expect("midnight is always valid"));
         return Ok(local_from_naive(ndt));
     }
     if let Some(utc) = raw.strip_suffix('Z') {
@@ -135,8 +136,8 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
 
     let end = match get_prop(props, "DTEND") {
         Some(e) => parse_ical_datetime(e)?,
-        None if all_day => start + Duration::days(1),
-        None => start + Duration::hours(1),
+        None if all_day => start + TimeDelta::days(1),
+        None => start + TimeDelta::hours(1),
     };
 
     // Common metadata shared by every occurrence of the series.
@@ -206,7 +207,7 @@ fn expand_recurrence(
 
     // Duration carried by each occurrence.
     let duration = if all_day {
-        Duration::days((end.date_naive() - start.date_naive()).num_days())
+        TimeDelta::days((end.date_naive() - start.date_naive()).num_days())
     } else {
         end - start
     };
@@ -214,7 +215,7 @@ fn expand_recurrence(
     let base_date = start.date_naive();
     let base_time = start.time();
     let interval = rule.interval.max(1);
-    let hard_stop = base_date + Duration::days((MAX_EXPAND_YEARS as i64) * 366);
+    let hard_stop = base_date + TimeDelta::days((MAX_EXPAND_YEARS as i64) * 366);
 
     let mut dates: Vec<NaiveDate> = Vec::new();
     let mut emitted = 0usize;
@@ -245,7 +246,7 @@ fn expand_recurrence(
         Freq::Daily => {
             let mut d = base_date;
             while count_ok(d) {
-                d += Duration::days(interval as i64);
+                d += TimeDelta::days(interval as i64);
             }
         }
         Freq::Weekly => {
@@ -257,18 +258,20 @@ fn expand_recurrence(
             let mut week = base_date;
             while week <= hard_stop {
                 for wd in &bydays {
-                    let cand = date_of_weekday_in_week(week, *wd);
+                    let cand = date_of_weekday_in_week(week, *wd, rule.wkst);
                     if cand >= base_date && !count_ok(cand) {
                         return finish(dates, base_date, base_time, duration, all_day);
                     }
                 }
-                week += Duration::weeks(interval as i64);
+                week += TimeDelta::weeks(interval as i64);
             }
         }
         Freq::Monthly => {
             let mut year = base_date.year();
             let mut month = base_date.month();
-            while NaiveDate::from_ymd_opt(year, month, 1).unwrap() <= hard_stop {
+            while NaiveDate::from_ymd_opt(year, month, 1)
+                .expect("year/month in expansion loop should be valid")
+                <= hard_stop {
                 let days: Vec<NaiveDate> = if !rule.bymonthday.is_empty() {
                     rule.bymonthday
                         .iter()
@@ -297,7 +300,9 @@ fn expand_recurrence(
         }
         Freq::Yearly => {
             let mut year = base_date.year();
-            while NaiveDate::from_ymd_opt(year, 1, 1).unwrap() <= hard_stop {
+            while NaiveDate::from_ymd_opt(year, 1, 1)
+                .expect("year in expansion loop should be valid")
+                <= hard_stop {
                 let months: Vec<u32> = if rule.bymonth.is_empty() {
                     vec![base_date.month()]
                 } else {
@@ -348,7 +353,7 @@ fn finish(
     dates: Vec<NaiveDate>,
     _base_date: NaiveDate,
     base_time: chrono::NaiveTime,
-    duration: Duration,
+    duration: TimeDelta,
     all_day: bool,
 ) -> Vec<(DateTime<Local>, DateTime<Local>)> {
     dates
@@ -363,7 +368,8 @@ fn finish(
 
 fn occ_start_datetime(d: NaiveDate, t: chrono::NaiveTime, all_day: bool) -> DateTime<Local> {
     if all_day {
-        local_from_naive(NaiveDateTime::new(d, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()))
+        local_from_naive(NaiveDateTime::new(d, chrono::NaiveTime::from_hms_opt(0, 0, 0)
+            .expect("midnight is always valid")))
     } else {
         local_from_naive(NaiveDateTime::new(d, t))
     }
@@ -372,24 +378,27 @@ fn occ_start_datetime(d: NaiveDate, t: chrono::NaiveTime, all_day: bool) -> Date
 fn occ_end_datetime(
     d: NaiveDate,
     t: chrono::NaiveTime,
-    duration: Duration,
+    duration: TimeDelta,
     all_day: bool,
 ) -> DateTime<Local> {
     if all_day {
         // All-day end is exclusive (start of the day after the last day).
         local_from_naive(
-            NaiveDateTime::new(d + duration, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()),
+            NaiveDateTime::new(d + duration, chrono::NaiveTime::from_hms_opt(0, 0, 0)
+                .expect("midnight is always valid")),
         )
     } else {
         occ_start_datetime(d, t, false) + duration
     }
 }
 
-/// The date of the given weekday within the ISO week that contains `anchor`
-/// (Monday-based week).
-fn date_of_weekday_in_week(anchor: NaiveDate, wd: Weekday) -> NaiveDate {
-    let monday = anchor - Duration::days(anchor.weekday().num_days_from_monday() as i64);
-    monday + Duration::days(wd.num_days_from_monday() as i64)
+/// The date of the given weekday within the week that contains `anchor`,
+/// where the week starts on `week_start` (per WKST).
+fn date_of_weekday_in_week(anchor: NaiveDate, wd: Weekday, week_start: Weekday) -> NaiveDate {
+    let base = week_start.num_days_from_sunday() as i64;
+    let anchor_offset = anchor.weekday().num_days_from_sunday() as i64 - base;
+    let wd_offset = wd.num_days_from_sunday() as i64 - base;
+    anchor - TimeDelta::days(anchor_offset) + TimeDelta::days(wd_offset)
 }
 
 /// Convert a (possibly negative) month-day to a concrete date, or None if invalid
@@ -400,7 +409,7 @@ fn month_day_to_date(year: i32, month: u32, md: i32) -> Option<NaiveDate> {
     } else {
         // Negative counts from the end of the month.
         let last = NaiveDate::from_ymd_opt(year, month + if month == 12 { 0 } else { 1 }, 1)?
-            - Duration::days(1);
+            - TimeDelta::days(1);
         last.day() as i32 + 1 + md
     };
     NaiveDate::from_ymd_opt(year, month, day as u32)
@@ -411,20 +420,20 @@ fn month_day_to_date(year: i32, month: u32, md: i32) -> Option<NaiveDate> {
 /// weekly-style BYDAY in a monthly context -> first match).
 fn nth_weekday_in_month(year: i32, month: u32, wd: Weekday, pos: Option<i32>) -> Option<NaiveDate> {
     let first = NaiveDate::from_ymd_opt(year, month, 1)?;
-    let first_wd = date_of_weekday_in_week(first, wd);
+    let first_wd = date_of_weekday_in_week(first, wd, Weekday::Mon);
     // First occurrence may be in the previous month; shift forward.
     let first_occ = if first_wd.month() == month {
         first_wd
     } else {
-        first_wd + Duration::weeks(1)
+        first_wd + TimeDelta::weeks(1)
     };
     match pos {
-        Some(p) if p > 0 => Some(first_occ + Duration::weeks((p - 1) as i64)),
+        Some(p) if p > 0 => Some(first_occ + TimeDelta::weeks((p - 1) as i64)),
         Some(p) if p < 0 => {
             // Last (or p-th from last) occurrence.
             let mut last = first_occ;
             loop {
-                let next = last + Duration::weeks(1);
+                let next = last + TimeDelta::weeks(1);
                 if next.month() != month {
                     break;
                 }
@@ -435,7 +444,7 @@ fn nth_weekday_in_month(year: i32, month: u32, wd: Weekday, pos: Option<i32>) ->
             if idx < 0 {
                 None
             } else {
-                Some(first_occ + Duration::weeks(idx))
+                Some(first_occ + TimeDelta::weeks(idx))
             }
         }
         _ => Some(first_occ),
@@ -455,6 +464,7 @@ struct RRule {
     interval: u32,
     count: Option<usize>,
     until: Option<DateTime<Local>>,
+    wkst: Weekday,
     byday: Vec<(Weekday, Option<i32>)>,
     bymonthday: Vec<i32>,
     bymonth: Vec<u32>,
@@ -467,6 +477,7 @@ impl RRule {
             interval: 1,
             count: None,
             until: None,
+            wkst: Weekday::Mon,
             byday: Vec::new(),
             bymonthday: Vec::new(),
             bymonth: Vec::new(),
@@ -517,6 +528,11 @@ impl RRule {
                         }
                     }
                 }
+                "WKST" => {
+                    if let Some((wd, _)) = parse_byday(val) {
+                        r.wkst = wd;
+                    }
+                }
                 _ => {}
             }
         }
@@ -527,19 +543,19 @@ impl RRule {
 
 /// Parse a BYDAY token like "MO", "-1MO", "2TU" into (weekday, optional position).
 fn parse_byday(tok: &str) -> Option<(Weekday, Option<i32>)> {
-    let (pos_str, wd_str) = if let Some(rest) = tok.strip_prefix(['+', '-']) {
-        let sign = if tok.starts_with('-') { -1 } else { 1 };
-        let num: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        let wd = rest.trim_start_matches(|c: char| c.is_ascii_digit());
-        (Some(sign * num.parse::<i32>().unwrap_or(1)), wd)
+    let tok = tok.trim();
+    let (digits, rest) = split_digits(tok);
+    let (pos, wd_str) = if rest.is_empty() {
+        // No weekday suffix — entire token is the weekday abbreviation.
+        (None, tok)
+    } else if digits.is_empty() {
+        // Just a weekday, no numeric prefix.
+        (None, rest)
     } else {
-        let num: String = tok.chars().take_while(|c| c.is_ascii_digit()).collect();
-        let wd = tok.trim_start_matches(|c: char| c.is_ascii_digit());
-        if num.is_empty() {
-            (None, tok)
-        } else {
-            (Some(num.parse::<i32>().unwrap_or(1)), wd)
-        }
+        let num = digits.parse::<i32>().unwrap_or(1);
+        // A leading '-' negates the position; '+' is ignored.
+        let sign = if tok.starts_with('-') { -1 } else { 1 };
+        (Some(sign * num), rest)
     };
     let weekday = match wd_str.to_ascii_uppercase().as_str() {
         "MO" => Weekday::Mon,
@@ -551,7 +567,20 @@ fn parse_byday(tok: &str) -> Option<(Weekday, Option<i32>)> {
         "SU" => Weekday::Sun,
         _ => return None,
     };
-    Some((weekday, pos_str))
+    Some((weekday, pos))
+}
+
+/// Split a string into a leading digit prefix and the remaining suffix.
+/// E.g. "2TU" -> ("2", "TU"), "-1MO" -> ("1", "MO"), "MO" -> ("", "MO").
+fn split_digits(s: &str) -> (&str, &str) {
+    let start = s.strip_prefix(['+', '-']).unwrap_or(s);
+    let digit_end = start
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(start.len());
+    let digits = &start[..digit_end];
+    // The suffix starts after the optional sign + digits.
+    let suffix_offset = if s.starts_with(['+', '-']) { 1 } else { 0 } + digit_end;
+    (digits, &s[suffix_offset..])
 }
 
 /// Serialize a Store to an .ics string.

@@ -339,9 +339,9 @@ fn build_appointment(
     let mut end = make_datetime(date, eh_v, em_v);
     if all {
         // iCalendar all-day DTEND is exclusive: store start of the day after.
-        end = start + chrono::Duration::days(1);
+        end = start + chrono::TimeDelta::days(1);
     } else if end <= start {
-        end = start + chrono::Duration::hours(1);
+        end = start + chrono::TimeDelta::hours(1);
     }
 
     let appt = if let Some(ex) = existing {

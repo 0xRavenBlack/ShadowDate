@@ -292,7 +292,8 @@ fn render_month(
         grid.attach(&l, i as i32, 0, 1, 1);
     }
 
-    let first = NaiveDate::from_ymd_opt(view_year, view_month, 1).unwrap();
+    let first = NaiveDate::from_ymd_opt(view_year, view_month, 1)
+        .expect("view_year/view_month should always be valid");
     let first_weekday = first.weekday().num_days_from_monday() as i32;
     let days_in_month = days_in(view_year, view_month);
     let t = today();
@@ -302,7 +303,8 @@ fn render_month(
     // month are not displayed; the grid keeps a fixed 6-row height with the
     // trailing cells left empty.
     for day in 1..=days_in_month {
-        let date = NaiveDate::from_ymd_opt(view_year, view_month, day).unwrap();
+        let date = NaiveDate::from_ymd_opt(view_year, view_month, day)
+            .expect("day in 1..=days_in_month should be valid");
         let (c, r) = grid_position(first_weekday, day);
         let appts: Vec<Appointment> =
             store.borrow().on_date(date).into_iter().cloned().collect();
@@ -353,11 +355,7 @@ fn render_day(
     for a in &appts {
         let row = build_appt_row(a);
         let uid = a.uid.clone();
-        let st = state.clone();
-        let lb = list_box.clone();
-        let dl = day_label.clone();
         let on_edit = on_edit.clone();
-        let on_new = on_new.clone();
         let sto = store.clone();
         // Rows are rebuilt on each render; the old row and its controller drop
         // when removed from the list box above, so attaching a fresh gesture
@@ -368,7 +366,6 @@ fn render_day(
             if let Some(appt) = appt_opt {
                 on_edit(&appt);
             }
-            render_day(&lb, &dl, &st, &sto, &on_edit, &on_new);
         });
         row.add_controller(ev);
         let lbrow = ListBoxRow::new();
@@ -401,11 +398,12 @@ fn render_day(
 
 fn days_in(year: i32, month: u32) -> u32 {
     let next = if month == 12 {
-        NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
+        NaiveDate::from_ymd_opt(year + 1, 1, 1).expect("year+1 overflow not expected")
     } else {
-        NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap()
+        NaiveDate::from_ymd_opt(year, month + 1, 1).expect("month+1 should be valid")
     };
-    let cur = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+    let cur =
+        NaiveDate::from_ymd_opt(year, month, 1).expect("year/month should be valid");
     (next - cur).num_days() as u32
 }
 

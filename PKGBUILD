@@ -9,7 +9,7 @@ url="https://github.com/0xRavenBlack/ShadowDate"
 options=('!debug')
 license=('MIT')
 depends=('gtk4' 'glib2')
-makedepends=('git' 'cargo' 'gtk4')
+makedepends=('git' 'cargo')
 source=("${pkgname}::git+${url}.git")
 sha256sums=('SKIP')
 
