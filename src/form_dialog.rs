@@ -161,10 +161,10 @@ pub fn run_appointment_dialog(
     dt_section.append(&time_grid);
     dt_section.append(&all_day);
 
-    // Cancel + Save action group, right-aligned under the calendar / date-time
-    // section (rather than in the dialog's action bar).
-    let action_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    action_row.set_halign(gtk::Align::End);
+    // Action row: Delete (left) … Cancel Save (right), all on one line under
+    // the all-day checkbox.
+    let action_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    action_row.set_hexpand(true);
     action_row.set_margin_top(6);
     let cancel_btn = Button::with_label(crate::i18n::t("cancel"));
     {
@@ -181,32 +181,8 @@ pub fn run_appointment_dialog(
             dialog.response(ResponseType::Accept);
         });
     }
-    action_row.append(&cancel_btn);
-    action_row.append(&save_btn);
-    dt_section.append(&action_row);
-    form.append(&dt_section);
-
-    // Grey out the time inputs while "All day" is active.
-    {
-        let widgets = [
-            start_hour.clone(),
-            start_min.clone(),
-            end_hour.clone(),
-            end_min.clone(),
-        ];
-        let apply = move |active: bool| {
-            for w in &widgets {
-                w.set_sensitive(!active);
-            }
-        };
-        apply(all_day.is_active());
-        all_day.connect_toggled(move |cb| apply(cb.is_active()));
-    }
-
+    // If editing, add a delete button on the left of the action row.
     if let Some(on_delete) = on_delete {
-        let del_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        del_row.set_halign(gtk::Align::Start);
-        del_row.set_margin_top(4);
         let del_btn = Button::with_label(crate::i18n::t("delete"));
         del_btn.add_css_class("delete-button");
         let on_result = on_result.clone();
@@ -238,8 +214,34 @@ pub fn run_appointment_dialog(
             });
             confirm.present();
         });
-        del_row.append(&del_btn);
-        form.append(&del_row);
+        action_row.append(&del_btn);
+    }
+
+    // Cancel + Save right-aligned inside the same row.
+    let btn_group = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    btn_group.set_halign(gtk::Align::End);
+    btn_group.set_hexpand(true);
+    btn_group.append(&cancel_btn);
+    btn_group.append(&save_btn);
+    action_row.append(&btn_group);
+    dt_section.append(&action_row);
+    form.append(&dt_section);
+
+    // Grey out the time inputs while "All day" is active.
+    {
+        let widgets = [
+            start_hour.clone(),
+            start_min.clone(),
+            end_hour.clone(),
+            end_min.clone(),
+        ];
+        let apply = move |active: bool| {
+            for w in &widgets {
+                w.set_sensitive(!active);
+            }
+        };
+        apply(all_day.is_active());
+        all_day.connect_toggled(move |cb| apply(cb.is_active()));
     }
 
     dialog.present();
