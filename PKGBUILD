@@ -4,38 +4,23 @@ _appid=0xravenblack.shadowdata
 pkgver=0.4.0
 pkgrel=1
 pkgdesc="A gothic dark-pastel desktop calendar for Linux (Rust + GTK4) with iCalendar support"
-arch=('x86_64' 'aarch64')
+arch=('x86_64')
 url="https://github.com/0xRavenBlack/ShadowDate"
 options=('!debug')
 license=('MIT')
 depends=('gtk4' 'glib2')
-makedepends=('git' 'cargo')
-source=("${pkgname}::git+${url}.git")
-sha256sums=('SKIP')
-
-prepare() {
-    cd "${pkgname}"
-    export CARGO_HOME="${srcdir}/.cargo"
-    cargo fetch --locked --target "$(rustc -vV | sed -n 's|host: ||p')"
-}
-
-build() {
-    cd "${pkgname}"
-    export CARGO_HOME="${srcdir}/.cargo"
-    cargo build --frozen --release --bin "${pkgname}"
-}
-
-check() {
-    cd "${pkgname}"
-    export CARGO_HOME="${srcdir}/.cargo"
-    cargo test --frozen --release
-}
+source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/download/v${pkgver}/shadowdate-${pkgver}-x86_64-linux"
+        "shadowdate-assets::https://github.com/0xRavenBlack/ShadowDate/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('92f59b904c18a2701f870678732a797d1ab9d7a17fc82e325b634e4c8c54f32a'
+            'c256ba31f520995f9ad41445b57c575fad244b6412de4fd1be4919dbd95fa49d')
 
 package() {
-    cd "${pkgname}"
+    cd "${srcdir}"
 
-    # Executable
-    install -Dm755 "target/release/${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
+    # Prebuilt release binary (shadowdate-<pkgver>-x86_64-linux)
+    install -Dm755 "shadowdate" "${pkgdir}/usr/bin/${pkgname}"
+
+    cd "ShadowDate-${pkgver}"
 
     # Desktop entry
     install -Dm644 "resources/${_appid}.desktop" \

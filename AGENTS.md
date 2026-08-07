@@ -36,7 +36,7 @@ resources/
     Logo.png              # 128x128 app logo (embedded; shown at 30px, scaled to 64px texture)
     portrait_face.png     # 1024x1024, shown translucently behind the calendar grid
     screenshot.jpg        # used by README only
-PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
+PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary + assets tarball
 ```
 
 ## Build & run
@@ -45,7 +45,11 @@ PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
 - Run: `./target/release/shadowdate`
 - Test: `cargo test` (ics round-trip + load tests)
 - Lint/typecheck: `cargo clippy` (clean; no warnings expected)
-- AUR build: `makepkg` (clones `https://github.com/0xRavenBlack/ShadowDate.git`)
+- AUR build: `makepkg` — downloads the prebuilt `shadowdate-<pkgver>-x86_64-linux`
+  binary from the GitHub release plus the `v<pkgver>` source tarball (for the desktop
+  entry, icon, and license); no compilation. NOTE: do not run `makepkg` inside the
+  repo itself (its `src/` dir collides with the tracked source); copy the repo or set
+  a separate `BUILDDIR`.
 
 ## Key architecture decisions
 
@@ -164,5 +168,8 @@ PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
   rebuild (they are embedded; no runtime path needed).
 - Change window size/float behavior: edit `main.rs` (`set_default_size`) and the
   Hyprland `windowrule`s in `~/.config/hypr/hyprland.conf`, then `hyprctl reload`.
-- Release / package: bump `pkgver` in `PKGBUILD`, regenerate `.SRCINFO`
-  (`makepkg --printsrcinfo > .SRCINFO`), commit, and tag the matching GitHub release.
+- Release / package: publish a GitHub release **tagged `v<pkgver>`** with the
+  `shadowdate-<pkgver>-x86_64-linux` binary uploaded as a release asset (the AUR
+  package installs this binary directly). Then bump `pkgver` in `PKGBUILD`,
+  update the two `sha256sums` (`makepkg -g` regenerates them), rebuild
+  `.SRCINFO` (`makepkg --printsrcinfo > .SRCINFO`), and commit.
