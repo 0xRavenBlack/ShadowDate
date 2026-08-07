@@ -224,6 +224,24 @@ pub fn t(key: &str) -> &'static str {
         "minutes" => (
             "Minutes", "Minuten", "Minutes", "Minutos", "分钟", "分", "Minuty",
         ),
+        "prev_month" => (
+            "Previous month",
+            "Vorheriger Monat",
+            "Mois précédent",
+            "Mes anterior",
+            "上个月",
+            "前の月",
+            "Poprzedni miesiąc",
+        ),
+        "next_month" => (
+            "Next month",
+            "Nächster Monat",
+            "Mois suivant",
+            "Mes siguiente",
+            "下个月",
+            "次の月",
+            "Następny miesiąc",
+        ),
         _ => ("???", "???", "???", "???", "???", "???", "???"),
     };
     match l {
@@ -237,17 +255,10 @@ pub fn t(key: &str) -> &'static str {
     }
 }
 
-/// "+N more" chip overflow label.
-pub fn more_label(n: usize) -> String {
-    match lang() {
-        Lang::En => format!("+{} more", n),
-        Lang::De => format!("+{} weitere", n),
-        Lang::Fr => format!("+{} de plus", n),
-        Lang::Es => format!("+{} más", n),
-        Lang::Zh => format!("+{} 更多", n),
-        Lang::Ja => format!("他 {} 件", n),
-        Lang::Pl => format!("+{} więcej", n),
-    }
+/// Compact "+N" overflow count for the grid dot row. Numeric-only, so it stays
+/// language-neutral and narrow enough to never overflow a day cell.
+pub fn more_compact(n: usize) -> String {
+    format!("+{}", n)
 }
 
 /// Short weekday abbreviations Mon..Sun for the grid header.

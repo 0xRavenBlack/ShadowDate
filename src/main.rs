@@ -58,6 +58,17 @@ fn load_css() {
     );
 }
 
+/// Headerbar action button with an icon, a label, and a tooltip. The label is
+/// always present so the action stays recognizable even when the icon theme
+/// lacks the symbolic icon.
+fn header_button(label: &str, icon: &str) -> Button {
+    let b = Button::new();
+    b.set_label(label);
+    b.set_icon_name(icon);
+    b.set_tooltip_text(Some(label));
+    b
+}
+
 fn build_ui(app: &Application) {
     let path = data_path();
     let store = Rc::new(RefCell::new(io_ics::load_store(&path)));
@@ -173,9 +184,9 @@ fn build_ui(app: &Application) {
 
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     let new_btn = cv.new_btn.clone();
-    let import_btn = Button::with_label(i18n::t("import"));
-    let export_btn = Button::with_label(i18n::t("export"));
-    let exit_btn = Button::with_label(i18n::t("exit"));
+    let import_btn = header_button(i18n::t("import"), "document-open-symbolic");
+    let export_btn = header_button(i18n::t("export"), "document-save-symbolic");
+    let exit_btn = header_button(i18n::t("exit"), "application-exit-symbolic");
     exit_btn.add_css_class("exit-button");
     exit_btn.connect_clicked({
         let window = window.clone();
@@ -189,18 +200,6 @@ fn build_ui(app: &Application) {
 
     window.set_titlebar(Some(&header));
     window.set_child(Some(&cv.widget));
-
-    // Responsive: stack panes vertically when the window is narrow.
-    // Listen for width property changes on the window.
-    {
-        let vref = view_ref.clone();
-        window.connect_notify_local(Some("default-width"), move |win, _| {
-            let w = win.width();
-            if let Some(v) = vref.borrow().as_ref() {
-                v.apply_responsive(w);
-            }
-        });
-    }
 
     *view_ref.borrow_mut() = Some(cv);
 

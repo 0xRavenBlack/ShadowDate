@@ -42,13 +42,13 @@ you share. 💜
 
 | | |
 |---|---|
-| 🗓️ **Month view** | Clean 6-row grid with color-coded appointment chips |
+| 🗓️ **Month view** | Solid 6×7 grid with compact color-dot indicators per day |
 | 📝 **Create / edit / delete** | A polished, scroll-free appointment form |
 | 📥 **Import** | Merge any `.ics` file into your calendar by UID |
 | 📤 **Export** | Write your whole calendar back out to `.ics` |
 | 🎨 **Dark pastel theme** | Lavender, mint, peach, pink, sky & lilac on charcoal |
 | 🖼️ **Fancy backdrop** | A translucent portrait sits softly behind the grid |
-| 📱 **Responsive** | Two-pane layout that stacks vertically on narrow windows |
+| ⌨️ **Keyboard-first** | Arrow keys move between days, Enter creates an appointment |
 | 🌍 **Multilingual** | 🇬🇧 🇩🇪 🇫🇷 🇪🇸 🇨🇳 🇯🇵 🇵🇱 — follows your system locale |
 
 ---

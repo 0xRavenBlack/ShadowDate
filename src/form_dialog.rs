@@ -246,6 +246,8 @@ pub fn run_appointment_dialog(
         all_day.connect_toggled(move |cb| apply(cb.is_active()));
     }
 
+    // Start with the cursor in the title field so the user can type right away.
+    gtk::prelude::GtkWindowExt::set_focus(&dialog, Some(&title_entry));
     dialog.present();
 
     let existing_owned: Option<Appointment> = existing.cloned();

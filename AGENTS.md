@@ -18,10 +18,10 @@ Previously known as "calendar"; the app was renamed to **ShadowDate** (binary
 Cargo.toml              # [[bin]] shadowdate + [lib] calendar; deps: gtk4 (0.11), ical, chrono, chrono-tz, uuid, anyhow
 src/
   lib.rs                # pub mod model; pub mod io_ics;  (library target for tests)
-  main.rs               # app bootstrap, window, headerbar, file choosers, responsive signal
+  main.rs               # app bootstrap, window, headerbar, file choosers
   model.rs              # Appointment struct + in-memory Store (keyed by UID)
   io_ics.rs             # parse/serialize .ics, import/export, load/save, merge
-  calendar_view.rs      # month grid, nav, day list, responsive two-pane, background portrait
+  calendar_view.rs      # month grid (dots + keyboard nav), day list, background portrait
   form_dialog.rs        # create/edit/delete appointment dialog (620x520, non-resizable, fits the window); Cancel/Save live in the form (right-aligned), time uses a SpinButton grid, Delete asks for confirmation
   i18n.rs               # translations (EN/DE/FR/ES/ZH/JA/PL), date + weekday formatting
   images.rs             # embedded logo + portrait (include_bytes!), decoded to gdk::Texture
@@ -62,22 +62,31 @@ PKGBUILD / .SRCINFO     # AUR package: clones the GitHub repo, builds, installs
 - **Headerbar controls** (always visible, even when small): leftmost = brand
   (logo + "ShadowDate"); then `‹ Today ›` nav box; right = `+ New`, `Import`,
   `Export`, `Exit`. All labels are localized via `i18n::t`.
-- **Responsive layout**: `CalendarView::apply_responsive(width)` switches the
-  content `Box` from horizontal (grid + side list) to vertical when width < 680px.
-  Driven by `connect_notify_local` on the window's `default-width` property
-  (main-thread only, because the view is held in `Rc<RefCell<Option<CalendarView>>>`
-  and is not `Send`).
+- **Fixed window**: the window is `set_resizable(false)` and fixed at 1024×560,
+  so there is no responsive/stacking code path; the two-pane layout
+  (grid + side list) is always horizontal.
 - **Background portrait**: the calendar content is wrapped in a `gtk::Overlay`; the
   `portrait_face.png` (embedded) sits behind as a translucent backdrop
   (`.bg-portrait`, `opacity: 0.30`), aligned to the start (left), full height, uniform
   width (aspect ratio preserved). Day cells are semi-transparent (`rgba(...)`) so the
   portrait shows through.
-- **Month grid cells**: the `Grid` is `column_homogeneous` / `row_homogeneous` with a
-  fixed cell height (64px) and chip labels capped via `set_max_width_chars` +
-  ellipsize, so day cells never resize with appointment title length or count. Up to 3
-  chips are shown per cell plus a "+N more" label; a **hover tooltip** on the cell
-  lists every appointment's time, title, location, and description in full. The grid
-  scrolled window does not propagate natural size (so it fills the fixed window).
+- **Month grid cells**: the `Grid` is `column_homogeneous` / `row_homogeneous`
+  and always renders a solid 6×7 frame: days from the previous/next month fill
+  the first/last rows and are dimmed (`.day-cell.other-month`), so the grid never
+  looks ragged. Each cell keeps a fixed footprint — the day number is pinned to
+  the top (so numbers align across every row) with up to 5 small colored dots
+  below (one per appointment; `●` timed, `○` all-day, colored by `c0..c5`). Days
+  with more than 5 appointments show a compact `+N` count. Cells never resize
+  with appointment count or title length; a **hover tooltip** on the cell lists
+  every appointment's time, title, location, and description in full. The grid
+  scroller is focusable and the grid scrolls only if the window were ever shrunk
+  below natural size.
+- **Keyboard navigation**: the grid scroller is focusable and holds the
+  `EventControllerKey`s: Arrow keys move the selection by ±1 day / ±7 days
+  (crossing month boundaries navigates the view), and Enter/Space opens the
+  new-appointment form for the selected day. After every rebuild the scroller
+  re-grabs focus so arrow navigation keeps working; the selected day is marked
+  by the `.selected` border.
 - **Data model**: `Appointment { uid, series_uid, title, description, location,
   start, end, all_day, color_index }` with `chrono::DateTime<Local>`. `Store` is
   keyed by UID (`HashMap<uid, index>` + `Vec`). `series_uid` is the base event's UID

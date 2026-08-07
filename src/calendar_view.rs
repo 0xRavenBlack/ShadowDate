@@ -1,7 +1,7 @@
 use calendar::model::{today, Appointment, Store};
 use chrono::{Datelike, NaiveDate};
 use gtk::prelude::*;
-use gtk::{Box, Button, CenterBox, Grid, Label, ListBox, ListBoxRow, ScrolledWindow};
+use gtk::{Box, Button, Grid, Label, ListBox, ListBoxRow, ScrolledWindow};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -14,11 +14,10 @@ struct ViewState {
 pub struct CalendarView {
     pub widget: Box,
     grid: Grid,
+    grid_scroll: ScrolledWindow,
     list_box: ListBox,
     month_label: Label,
     day_label: Label,
-    content: Box,
-    pub right_col: Box,
     state: Rc<RefCell<ViewState>>,
     store: Rc<RefCell<Store>>,
     on_edit: Rc<dyn Fn(&Appointment) + 'static>,
@@ -86,12 +85,18 @@ impl CalendarView {
         grid.set_row_homogeneous(true);
         grid.add_css_class("calendar-grid");
         grid.set_halign(gtk::Align::Fill);
-        grid.set_valign(gtk::Align::Start);
+        // Fill the viewport so the 7 rows share the available height evenly;
+        // cells are compact by construction and never drive the grid taller.
+        grid.set_valign(gtk::Align::Fill);
+        grid.set_vexpand(true);
         let grid_scroll = ScrolledWindow::builder()
             .child(&grid)
             .hexpand(true)
             .vexpand(true)
             .build();
+        // Focusable so arrow-key navigation keeps working across cell rebuilds.
+        grid_scroll.add_css_class("day-grid");
+        grid_scroll.set_can_focus(true);
         content.append(&grid_scroll);
 
         let right = Box::new(gtk::Orientation::Vertical, 8);
@@ -115,19 +120,24 @@ impl CalendarView {
         inner.append(&content);
 
         let prev_btn = Button::with_label("‹");
+        prev_btn.add_css_class("nav-button");
+        prev_btn.set_tooltip_text(Some(crate::i18n::t("prev_month")));
         let next_btn = Button::with_label("›");
+        next_btn.add_css_class("nav-button");
+        next_btn.set_tooltip_text(Some(crate::i18n::t("next_month")));
         let today_btn = Button::with_label(crate::i18n::t("today"));
+        today_btn.set_tooltip_text(Some(crate::i18n::t("today")));
         let new_btn = Button::with_label(crate::i18n::t("new"));
+        new_btn.set_tooltip_text(Some(crate::i18n::t("new")));
         new_btn.add_css_class("new-button");
 
         let view = Self {
             widget,
             grid,
+            grid_scroll,
             list_box,
             month_label,
             day_label,
-            content,
-            right_col: right,
             state,
             store,
             on_edit,
@@ -214,18 +224,50 @@ impl CalendarView {
                 on_new(d);
             });
         }
-    }
+        {
+            // Arrow keys move the selection across the month grid; Enter /
+            // Space open the new-appointment form for the selected day. The
+            // controller lives on the (focusable) grid scroller, so it keeps
+            // receiving keys no matter which day cell is rebuilt on refresh.
+            let st = self.state.clone();
+            let g = self.grid.clone();
+            let ml = self.month_label.clone();
+            let lb = self.list_box.clone();
+            let dl = self.day_label.clone();
+            let oe = self.on_edit.clone();
+            let on = self.on_new.clone();
+            let sto = self.store.clone();
+            let nav_keys = gtk::EventControllerKey::new();
+            nav_keys.connect_key_pressed(move |_, keyval, _, _| {
+                let selected = st.borrow().selected;
+                let next = match keyval {
+                    gtk::gdk::Key::Left => selected - chrono::TimeDelta::days(1),
+                    gtk::gdk::Key::Right => selected + chrono::TimeDelta::days(1),
+                    gtk::gdk::Key::Up => selected - chrono::TimeDelta::days(7),
+                    gtk::gdk::Key::Down => selected + chrono::TimeDelta::days(7),
+                    _ => return gtk::glib::Propagation::Proceed,
+                };
+                select_date(&st, &g, &ml, &lb, &dl, &sto, &oe, &on, next);
+                gtk::glib::Propagation::Stop
+            });
+            self.grid_scroll.add_controller(nav_keys);
 
-    /// Switch the two-pane layout to vertical when the window is narrow.
-    pub fn apply_responsive(&self, width: i32) {
-        if width < 680 {
-            self.content.set_orientation(gtk::Orientation::Vertical);
-            self.right_col.set_size_request(-1, 200);
-            self.right_col.set_hexpand(true);
-        } else {
-            self.content.set_orientation(gtk::Orientation::Horizontal);
-            self.right_col.set_size_request(260, -1);
-            self.right_col.set_hexpand(false);
+            let st = self.state.clone();
+            let on = self.on_new.clone();
+            let action_keys = gtk::EventControllerKey::new();
+            action_keys.connect_key_pressed(move |_, keyval, _, _| {
+                let d = st.borrow().selected;
+                match keyval {
+                    gtk::gdk::Key::Return
+                    | gtk::gdk::Key::KP_Enter
+                    | gtk::gdk::Key::space => {
+                        on(d);
+                        gtk::glib::Propagation::Stop
+                    }
+                    _ => gtk::glib::Propagation::Proceed,
+                }
+            });
+            self.grid_scroll.add_controller(action_keys);
         }
     }
 
@@ -241,6 +283,31 @@ impl CalendarView {
             &self.on_new,
         );
     }
+}
+
+/// Select `date`, navigating the viewed month when it lies outside the
+/// currently displayed month, and rebuild the whole view around it.
+#[allow(clippy::too_many_arguments)]
+fn select_date(
+    state: &Rc<RefCell<ViewState>>,
+    grid: &Grid,
+    month_label: &Label,
+    list_box: &ListBox,
+    day_label: &Label,
+    store: &Rc<RefCell<Store>>,
+    on_edit: &Rc<dyn Fn(&Appointment) + 'static>,
+    on_new: &Rc<dyn Fn(NaiveDate) + 'static>,
+    date: NaiveDate,
+) {
+    {
+        let mut s = state.borrow_mut();
+        if s.view_year != date.year() || s.view_month != date.month() {
+            s.view_year = date.year();
+            s.view_month = date.month();
+        }
+        s.selected = date;
+    }
+    refresh_all(grid, month_label, list_box, day_label, state, store, on_edit, on_new);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -295,46 +362,52 @@ fn render_month(
     let first = NaiveDate::from_ymd_opt(view_year, view_month, 1)
         .expect("view_year/view_month should always be valid");
     let first_weekday = first.weekday().num_days_from_monday() as i32;
-    let days_in_month = days_in(view_year, view_month);
     let t = today();
 
-    // Render only days that belong to the current month, placed in their
-    // correct weekday column. Inactive padding days from the previous/next
-    // month are not displayed; the grid keeps a fixed 6-row height with the
-    // trailing cells left empty.
-    for day in 1..=days_in_month {
-        let date = NaiveDate::from_ymd_opt(view_year, view_month, day)
-            .expect("day in 1..=days_in_month should be valid");
-        let (c, r) = grid_position(first_weekday, day);
-        let appts: Vec<Appointment> =
-            store.borrow().on_date(date).into_iter().cloned().collect();
-        let is_today = date == t;
-        let is_selected = date == selected;
-        let cell = build_cell(
-            &day.to_string(),
-            false,
-            is_today,
-            is_selected,
-            &appts,
-        );
-        let st = state.clone();
-        let g = grid.clone();
-        let ml = month_label.clone();
-        let lb = list_box.clone();
-        let dl = day_label.clone();
-        let oe = on_edit.clone();
-        let on = on_new.clone();
-        let sto = store.clone();
-        // Cells are rebuilt on every render, so a fresh click gesture is
-        // attached per cell; the old cell (and its controller) is dropped
-        // when removed from the grid above, so this does not leak.
-        let ev = gtk::GestureClick::new();
-        ev.connect_pressed(move |_, _, _, _| {
-            st.borrow_mut().selected = date;
-            refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe, &on);
-        });
-        cell.add_controller(ev);
-        grid.attach(&cell, c, r, 1, 1);
+    // Render the full 6x7 frame so the grid is always a solid rectangle.
+    // Cells before the 1st and after the last day come from the previous/next
+    // month and are dimmed; clicking one navigates to its month.
+    for r in 1..=6 {
+        for c in 0..7 {
+            let cell_index = ((r - 1) * 7 + c) as usize;
+            let offset = cell_offset(first_weekday, cell_index);
+            let date = first + chrono::TimeDelta::days(offset as i64);
+            let other_month = date.year() != view_year || date.month() != view_month;
+            let appts: Vec<Appointment> =
+                store.borrow().on_date(date).into_iter().cloned().collect();
+            let is_today = date == t;
+            let is_selected = date == selected;
+            let cell = build_cell(
+                &date.day().to_string(),
+                other_month,
+                is_today,
+                is_selected,
+                &appts,
+            );
+            let st = state.clone();
+            let g = grid.clone();
+            let ml = month_label.clone();
+            let lb = list_box.clone();
+            let dl = day_label.clone();
+            let oe = on_edit.clone();
+            let on = on_new.clone();
+            let sto = store.clone();
+            // Cells are rebuilt on every render, so a fresh click gesture is
+            // attached per cell; the old cell (and its controller) is dropped
+            // when removed from the grid above, so this does not leak.
+            let ev = gtk::GestureClick::new();
+            ev.connect_pressed(move |_, _, _, _| {
+                select_date(&st, &g, &ml, &lb, &dl, &sto, &oe, &on, date);
+            });
+            cell.add_controller(ev);
+            grid.attach(&cell, c, r, 1, 1);
+        }
+    }
+
+    // Keep keyboard focus on the grid scroller so arrow navigation continues
+    // to work after every rebuild.
+    if let Some(parent) = grid.parent() {
+        parent.grab_focus();
     }
 }
 
@@ -396,15 +469,14 @@ fn render_day(
     }
 }
 
-fn days_in(year: i32, month: u32) -> u32 {
-    let next = if month == 12 {
-        NaiveDate::from_ymd_opt(year + 1, 1, 1).expect("year+1 overflow not expected")
-    } else {
-        NaiveDate::from_ymd_opt(year, month + 1, 1).expect("month+1 should be valid")
-    };
-    let cur =
-        NaiveDate::from_ymd_opt(year, month, 1).expect("year/month should be valid");
-    (next - cur).num_days() as u32
+/// Map a 0-based cell index in the 7-column grid to the day-of-month offset
+/// from the 1st, given the weekday of the 1st (Monday = 0). Row 0 holds the
+/// weekday headers, so day rows start at cell 0 in row 1. Negative offsets are
+/// days of the previous month; offsets >= days in the month are days of the
+/// next month. This is the pure core of the grid alignment so it can be
+/// unit-tested without a display.
+fn cell_offset(first_weekday: i32, cell: usize) -> i32 {
+    cell as i32 - first_weekday
 }
 
 fn build_cell(
@@ -417,9 +489,6 @@ fn build_cell(
     let cell = Box::new(gtk::Orientation::Vertical, 2);
     cell.add_css_class("day-cell");
     cell.set_valign(gtk::Align::Fill);
-    // Fixed footprint so the cell never grows with its contents (long titles,
-    // many appointments); chips ellipsize and overflow is shown via tooltip.
-    cell.set_size_request(-1, 64);
     if other_month {
         cell.add_css_class("other-month");
     }
@@ -429,40 +498,42 @@ fn build_cell(
     if is_selected {
         cell.add_css_class("selected");
     }
-    // Center the day number vertically within the cell using a CenterBox.
-    let num_center = CenterBox::new();
-    num_center.set_orientation(gtk::Orientation::Vertical);
-    num_center.set_hexpand(true);
-    num_center.set_vexpand(true);
+
+    // Day number pinned to the top so the numbers align across every row,
+    // regardless of how many appointments a day holds.
     let num = Label::new(Some(day_text));
     num.add_css_class("day-number");
     num.set_xalign(0.5);
     num.set_halign(gtk::Align::Center);
-    num.set_valign(gtk::Align::Center);
     if is_today {
         num.add_css_class("today-label");
     }
-    num_center.set_center_widget(Some(&num));
-    cell.append(&num_center);
-    for a in appts.iter().take(3) {
-        let prefix = if a.all_day { "◆ " } else { "" };
-        let c = Label::new(Some(&format!("{}{}", prefix, a.title)));
-        c.add_css_class("appt-chip");
-        c.add_css_class(&format!("c{}", a.color_index % 6));
-        if a.all_day {
-            c.add_css_class("all-day");
+    cell.append(&num);
+
+    // Compact colored dots: one per appointment, capped so the cell keeps a
+    // fixed footprint no matter how full the day is. Full details stay in the
+    // hover tooltip below.
+    if !appts.is_empty() {
+        let dot_row = Box::new(gtk::Orientation::Horizontal, 2);
+        dot_row.add_css_class("dot-row");
+        dot_row.set_halign(gtk::Align::Center);
+        for a in appts.iter().take(5) {
+            let dot = Label::new(Some(if a.all_day { "○" } else { "●" }));
+            dot.add_css_class("appt-dot");
+            dot.add_css_class(&format!("c{}", a.color_index % 6));
+            if a.all_day {
+                dot.add_css_class("all-day");
+            }
+            dot_row.append(&dot);
         }
-        c.set_xalign(0.0);
-        c.set_hexpand(true);
-        c.set_max_width_chars(14);
-        c.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        cell.append(&c);
+        if appts.len() > 5 {
+            let more = Label::new(Some(&crate::i18n::more_compact(appts.len() - 5)));
+            more.add_css_class("dot-count");
+            dot_row.append(&more);
+        }
+        cell.append(&dot_row);
     }
-    if appts.len() > 3 {
-        let more = Label::new(Some(&crate::i18n::more_label(appts.len() - 3)));
-        more.add_css_class("empty-label");
-        cell.append(&more);
-    }
+
     if !appts.is_empty() {
         let detail: Vec<String> = appts
             .iter()
@@ -489,9 +560,13 @@ fn build_appt_row(a: &Appointment) -> Box {
     if a.all_day {
         row.add_css_class("all-day");
     }
+    // Keep rows compact: single-line ellipsized title and meta so long titles
+    // never inflate the row; the full text is available on hover.
     let title = Label::new(Some(&a.title));
     title.add_css_class("appt-title");
     title.set_xalign(0.0);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.set_max_width_chars(32);
     row.append(&title);
     if a.all_day {
         let tag = Label::new(Some(crate::i18n::t("all_day_short")));
@@ -502,56 +577,67 @@ fn build_appt_row(a: &Appointment) -> Box {
     let meta = Label::new(Some(&format!("{}   {}", a.time_label(crate::i18n::t("all_day_short")), a.location)));
     meta.add_css_class("appt-meta");
     meta.set_xalign(0.0);
+    meta.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    meta.set_max_width_chars(32);
     row.append(&meta);
     if !a.description.is_empty() {
         let d = Label::new(Some(&a.description));
         d.add_css_class("appt-meta");
         d.set_xalign(0.0);
         d.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        d.set_max_width_chars(40);
         row.append(&d);
     }
+    row.set_tooltip_text(Some(&format!(
+        "{}\n{}",
+        a.title,
+        if a.location.is_empty() {
+            String::new()
+        } else {
+            format!("@ {}", a.location)
+        }
+    )));
     row
-}
-
-/// Map a day-of-month to its (column, row) in the 7-column month grid, given
-/// the weekday of the 1st of the month (Monday = 0). Row 0 holds the weekday
-/// headers; day rows start at 1. This is the pure core of the grid alignment so
-/// it can be unit-tested without a display.
-fn grid_position(first_weekday: i32, day: u32) -> (i32, i32) {
-    let offset = first_weekday + (day - 1) as i32;
-    (offset % 7, 1 + offset / 7)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::grid_position;
+    use super::cell_offset;
 
     #[test]
     fn first_of_month_landing_on_its_weekday() {
-        // A month whose 1st is a Monday (first_weekday = 0) puts day 1 at
-        // column 0, row 1.
-        assert_eq!(grid_position(0, 1), (0, 1));
-        // Day 7 (still Monday-based week) lands on column 6, row 1.
-        assert_eq!(grid_position(0, 7), (6, 1));
-        // Day 8 wraps to the next row, column 0.
-        assert_eq!(grid_position(0, 8), (0, 2));
+        // 1st is a Monday (first_weekday = 0): cell 0 is the 1st, cell 6 the 7th.
+        assert_eq!(cell_offset(0, 0), 0);
+        assert_eq!(cell_offset(0, 6), 6);
+        // Cell 7 wraps to the next row: the 8th.
+        assert_eq!(cell_offset(0, 7), 7);
     }
 
     #[test]
     fn weekday_offset_shifts_columns() {
-        // 1st is a Wednesday (first_weekday = 2): day 1 -> column 2, row 1.
-        assert_eq!(grid_position(2, 1), (2, 1));
-        // Day 6 (the following Monday) -> column 0, row 2.
-        assert_eq!(grid_position(2, 6), (0, 2));
+        // 1st is a Wednesday (first_weekday = 2): cell 0 is two days before the
+        // 1st (previous month), cell 2 is the 1st itself.
+        assert_eq!(cell_offset(2, 0), -2);
+        assert_eq!(cell_offset(2, 2), 0);
+        // Cell 6 falls on the 5th of the month (offset 4).
+        assert_eq!(cell_offset(2, 6), 4);
     }
 
     #[test]
-    fn columns_stay_in_range() {
+    fn offsets_stay_within_grid_frame() {
+        // The 6x7 frame holds 42 cells (indices 0..=41). With the 1st landing
+        // anywhere in the week (first_weekday 0..=6) the offsets span at most
+        // from -6 (day before a Sunday-leading week) to +41.
         for first in 0..7i32 {
-            for day in 1..=31u32 {
-                let (c, r) = grid_position(first, day);
-                assert!((0..7).contains(&c), "col {} out of range", c);
-                assert!((1..=6).contains(&r), "row {} out of range", r);
+            for cell in 0..42usize {
+                let offset = cell_offset(first, cell);
+                assert!(
+                    (-6..=41).contains(&offset),
+                    "offset {} out of range (first={}, cell={})",
+                    offset,
+                    first,
+                    cell
+                );
             }
         }
     }
