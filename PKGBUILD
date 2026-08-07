@@ -10,9 +10,13 @@ options=('!debug')
 license=('MIT')
 depends=('gtk4' 'glib2')
 source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/download/v${pkgver}/shadowdate-${pkgver}-x86_64-linux"
-        "shadowdate-assets::https://github.com/0xRavenBlack/ShadowDate/archive/refs/tags/v${pkgver}.tar.gz")
+        "0xravenblack.shadowdata.desktop"
+        "Logo.png"
+        "LICENSE")
 sha256sums=('92f59b904c18a2701f870678732a797d1ab9d7a17fc82e325b634e4c8c54f32a'
-            'c256ba31f520995f9ad41445b57c575fad244b6412de4fd1be4919dbd95fa49d')
+            'SKIP'
+            'SKIP'
+            'SKIP')
 
 package() {
     cd "${srcdir}"
@@ -20,14 +24,12 @@ package() {
     # Prebuilt release binary (shadowdate-<pkgver>-x86_64-linux)
     install -Dm755 "shadowdate" "${pkgdir}/usr/bin/${pkgname}"
 
-    cd "ShadowDate-${pkgver}"
-
     # Desktop entry
-    install -Dm644 "resources/${_appid}.desktop" \
+    install -Dm644 "0xravenblack.shadowdata.desktop" \
         "${pkgdir}/usr/share/applications/${_appid}.desktop"
 
     # Icon (Logo.png is a 128x128 raster PNG)
-    install -Dm644 "resources/img/Logo.png" \
+    install -Dm644 "Logo.png" \
         "${pkgdir}/usr/share/icons/hicolor/128x128/apps/${_appid}.png"
 
     # License

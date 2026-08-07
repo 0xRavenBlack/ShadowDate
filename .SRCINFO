@@ -9,8 +9,12 @@ pkgbase = shadowdate
 	depends = glib2
 	options = !debug
 	source = shadowdate::https://github.com/0xRavenBlack/ShadowDate/releases/download/v0.4.0/shadowdate-0.4.0-x86_64-linux
-	source = shadowdate-assets::https://github.com/0xRavenBlack/ShadowDate/archive/refs/tags/v0.4.0.tar.gz
+	source = 0xravenblack.shadowdata.desktop
+	source = Logo.png
+	source = LICENSE
 	sha256sums = 92f59b904c18a2701f870678732a797d1ab9d7a17fc82e325b634e4c8c54f32a
-	sha256sums = c256ba31f520995f9ad41445b57c575fad244b6412de4fd1be4919dbd95fa49d
+	sha256sums = SKIP
+	sha256sums = SKIP
+	sha256sums = SKIP
 
 pkgname = shadowdate

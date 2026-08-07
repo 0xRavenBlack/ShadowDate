@@ -36,7 +36,8 @@ resources/
     Logo.png              # 128x128 app logo (embedded; shown at 30px, scaled to 64px texture)
     portrait_face.png     # 1024x1024, shown translucently behind the calendar grid
     screenshot.jpg        # used by README only
-PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary + assets tarball
+PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ local .desktop/icon/license)
+0xravenblack.shadowdata.desktop / Logo.png / LICENSE  # local copies shipped next to the PKGBUILD
 ```
 
 ## Build & run
@@ -45,11 +46,11 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary + as
 - Run: `./target/release/shadowdate`
 - Test: `cargo test` (ics round-trip + load tests)
 - Lint/typecheck: `cargo clippy` (clean; no warnings expected)
-- AUR build: `makepkg` — downloads the prebuilt `shadowdate-<pkgver>-x86_64-linux`
-  binary from the GitHub release plus the `v<pkgver>` source tarball (for the desktop
-  entry, icon, and license); no compilation. NOTE: do not run `makepkg` inside the
-  repo itself (its `src/` dir collides with the tracked source); copy the repo or set
-  a separate `BUILDDIR`.
+- AUR build: `makepkg` — downloads only the prebuilt `shadowdate-<pkgver>-x86_64-linux`
+  binary from the GitHub release (the desktop entry, icon, and license ship as local
+  files next to the PKGBUILD); no compilation, no source download. NOTE: do not run
+  `makepkg` inside the repo itself (its `src/` dir collides with the tracked source);
+  copy the repo or set a separate `BUILDDIR`.
 
 ## Key architecture decisions
 
@@ -171,5 +172,5 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary + as
 - Release / package: publish a GitHub release **tagged `v<pkgver>`** with the
   `shadowdate-<pkgver>-x86_64-linux` binary uploaded as a release asset (the AUR
   package installs this binary directly). Then bump `pkgver` in `PKGBUILD`,
-  update the two `sha256sums` (`makepkg -g` regenerates them), rebuild
+  update the binary's `sha256sums` (`makepkg -g` regenerates it), rebuild
   `.SRCINFO` (`makepkg --printsrcinfo > .SRCINFO`), and commit.
