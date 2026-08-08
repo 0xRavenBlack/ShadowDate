@@ -6,7 +6,7 @@ use ical::parser::ical::component::IcalCalendar;
 use ical::property::Property;
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Hard safety caps so a malformed/giant RRULE can never hang the importer.
 const MAX_OCCURRENCES: usize = 4000;
@@ -15,20 +15,48 @@ const MAX_EXPAND_YEARS: i32 = 20;
 /// Parse an .ics file into a Store. Recurring events (RRULE) are expanded into
 /// individual occurrence appointments so the existing grid/list rendering works
 /// without change. Each occurrence keeps the base event's UID in `series_uid`.
+///
+/// Parsing is tolerant: a malformed calendar or event is skipped with a warning
+/// instead of failing the whole import, so a single bad line can never wipe the
+/// rest of the calendar. Only a file that cannot be read at all yields an error.
 pub fn import_ics(path: &Path) -> Result<Store> {
+    import_ics_with_warnings(path).map(|(store, _)| store)
+}
+
+/// Like [`import_ics`], but also returns a human-readable warning for each
+/// calendar/event that had to be skipped. Callers can surface the warnings and
+/// back up a partially-corrupt file before the next save overwrites it.
+pub fn import_ics_with_warnings(path: &Path) -> Result<(Store, Vec<String>)> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("reading {}", path.display()))?;
-    let reader = ical::IcalParser::new(content.as_bytes());
+    Ok(parse_ics(&content))
+}
+
+/// Parse .ics content into a Store, skipping anything malformed and collecting
+/// warnings. Never fails: structural problems are reported, not fatal.
+fn parse_ics(content: &str) -> (Store, Vec<String>) {
     let mut store = Store::new();
-    for cal in reader {
-        let cal: IcalCalendar = cal.map_err(|e| anyhow!("ics parse error: {}", e))?;
+    let mut warnings = Vec::new();
+    for cal in ical::IcalParser::new(content.as_bytes()) {
+        let cal: IcalCalendar = match cal {
+            Ok(c) => c,
+            Err(e) => {
+                warnings.push(format!("skipping an unreadable calendar: {}", e));
+                continue;
+            }
+        };
         for event in cal.events {
-            for appt in event_to_appointments(&event.properties)? {
-                store.insert(appt);
+            match event_to_appointments(&event.properties) {
+                Ok(appts) => {
+                    for appt in appts {
+                        store.insert(appt);
+                    }
+                }
+                Err(e) => warnings.push(format!("skipping an invalid event: {}", e)),
             }
         }
     }
-    Ok(store)
+    (store, warnings)
 }
 
 fn get_prop<'a>(props: &'a [Property], name: &str) -> Option<&'a Property> {
@@ -116,7 +144,7 @@ fn local_from_naive(ndt: NaiveDateTime) -> DateTime<Local> {
 fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
     let uid = match prop_value(props, "UID") {
         Some(u) => u,
-        None => return Ok(Vec::new()),
+        None => return Err(anyhow!("VEVENT without UID")),
     };
     let title = unescape_text(&prop_value(props, "SUMMARY").unwrap_or_default());
     let description = unescape_text(
@@ -125,7 +153,7 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
     let location = unescape_text(&prop_value(props, "LOCATION").unwrap_or_default());
     let start_prop = match get_prop(props, "DTSTART") {
         Some(s) => s,
-        None => return Ok(Vec::new()),
+        None => return Err(anyhow!("VEVENT without DTSTART")),
     };
     let start_raw = start_prop
         .value
@@ -699,12 +727,19 @@ pub fn write_atomic(path: &Path, data: &str) -> Result<()> {
 }
 
 /// Load the persistent store from the default data file, if it exists.
-pub fn load_store(path: &Path) -> Store {
-    if path.exists() {
-        import_ics(path).unwrap_or_default()
-    } else {
-        Store::new()
+///
+/// A missing file yields an empty store; a file that cannot be read at all is
+/// an error. Parse problems *inside* an existing file are reported as warnings
+/// (so the caller can back the file up) rather than silently wiping the
+/// calendar, and individual bad entries are skipped instead of failing the
+/// whole load.
+pub fn load_store(path: &Path) -> Result<(Store, Vec<String>)> {
+    if !path.exists() {
+        return Ok((Store::new(), Vec::new()));
     }
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("reading {}", path.display()))?;
+    Ok(parse_ics(&content))
 }
 
 /// Save the store to the default data file (also the export format). Written
@@ -712,6 +747,32 @@ pub fn load_store(path: &Path) -> Store {
 pub fn save_store(store: &Store, path: &Path) -> Result<()> {
     let data = store_to_ics(store, "-//ravenblack//calendar//EN");
     write_atomic(path, &data)
+}
+
+/// Best-effort copy of a calendar file that could not be loaded, so the user's
+/// data survives even when the app starts with a corrupt/unreadable file (and
+/// the next save would otherwise overwrite it with an empty store). Returns the
+/// backup path, or `None` if the file could not be read or copied.
+pub fn backup_corrupt(path: &Path) -> Option<PathBuf> {
+    let data = match fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("warning: could not back up {}: {}", path.display(), e);
+            return None;
+        }
+    };
+    let ts = Local::now().format("%Y%m%d%H%M%S");
+    let backup = path.with_extension(format!("ics.corrupt-{}.bak", ts));
+    match fs::write(&backup, data) {
+        Ok(()) => {
+            eprintln!("backed up unreadable calendar to {}", backup.display());
+            Some(backup)
+        }
+        Err(e) => {
+            eprintln!("warning: could not write backup {}: {}", backup.display(), e);
+            None
+        }
+    }
 }
 
 /// Merge another store into this one. For each series present in `other`

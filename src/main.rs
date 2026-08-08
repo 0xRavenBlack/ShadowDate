@@ -5,7 +5,7 @@ mod service_settings;
 
 use calendar::i18n;
 use calendar::io_ics;
-use calendar::model::Appointment;
+use calendar::model::{Appointment, Store};
 use calendar::paths;
 use calendar::service::APP_ID;
 use calendar_view::CalendarView;
@@ -61,7 +61,34 @@ fn header_button(label: &str, icon: &str) -> Button {
 
 fn build_ui(app: &Application) {
     let path = paths::data_path();
-    let store = Rc::new(RefCell::new(io_ics::load_store(&path)));
+    let (store, load_warning) = match io_ics::load_store(&path) {
+        Ok((store, warnings)) => {
+            if warnings.is_empty() {
+                (store, None)
+            } else {
+                let msg = format!("{}\n\n{}", i18n::t("load_warnings"), warnings.join("\n"));
+                eprintln!("warning: loading {}: {}", path.display(), msg);
+                (store, Some(msg))
+            }
+        }
+        Err(e) => {
+            // Unreadable or corrupt file: preserve the bytes before starting
+            // empty, otherwise the next save would overwrite the calendar.
+            let backup = io_ics::backup_corrupt(&path);
+            let msg = match backup {
+                Some(b) => format!(
+                    "{}\n\n{}\n\n{}",
+                    i18n::t("load_failed_backed_up"),
+                    b.display(),
+                    e
+                ),
+                None => format!("{}\n\n{}", i18n::t("load_failed"), e),
+            };
+            eprintln!("warning: {}", msg);
+            (Store::new(), Some(msg))
+        }
+    };
+    let store = Rc::new(RefCell::new(store));
     let window = ApplicationWindow::builder()
         .application(app)
         .title("ShadowDate")
@@ -102,6 +129,8 @@ fn build_ui(app: &Application) {
         let view_ref = view_ref.clone();
         std::boxed::Box::new(move |appt: &Appointment| {
             let window = window.clone();
+            let result_window = window.clone();
+            let del_window = window.clone();
             let store = store.clone();
             let path = path.clone();
             let view_ref = view_ref.clone();
@@ -121,7 +150,9 @@ fn build_ui(app: &Application) {
                         // (now non-recurring) appointment the user submitted.
                         store.borrow_mut().remove_series(&del_series);
                         store.borrow_mut().insert(result);
-                        let _ = io_ics::save_store(&store.borrow(), &path);
+                        if let Err(e) = io_ics::save_store(&store.borrow(), &path) {
+                            show_error(&result_window, &e.to_string());
+                        }
                         if let Some(v) = view_ref.borrow().as_ref() {
                             v.refresh();
                         }
@@ -129,7 +160,9 @@ fn build_ui(app: &Application) {
                 }),
                 Some(std::boxed::Box::new(move || {
                     del_store.borrow_mut().remove_series(&del_series2);
-                    let _ = io_ics::save_store(&del_store.borrow(), &del_path);
+                    if let Err(e) = io_ics::save_store(&del_store.borrow(), &del_path) {
+                        show_error(&del_window, &e.to_string());
+                    }
                     if let Some(v) = del_view.borrow().as_ref() {
                         v.refresh();
                     }
@@ -145,6 +178,7 @@ fn build_ui(app: &Application) {
         let view_ref = view_ref.clone();
         std::boxed::Box::new(move |date: chrono::NaiveDate| {
             let window = window.clone();
+            let result_window = window.clone();
             let store = store.clone();
             let path = path.clone();
             let view_ref = view_ref.clone();
@@ -155,7 +189,9 @@ fn build_ui(app: &Application) {
                 std::boxed::Box::new(move |result| {
                     if let Some(result) = result {
                         store.borrow_mut().insert(result);
-                        let _ = io_ics::save_store(&store.borrow(), &path);
+                        if let Err(e) = io_ics::save_store(&store.borrow(), &path) {
+                            show_error(&result_window, &e.to_string());
+                        }
                         if let Some(v) = view_ref.borrow().as_ref() {
                             v.refresh();
                         }
@@ -227,12 +263,24 @@ fn build_ui(app: &Application) {
                 if response == gtk::ResponseType::Accept {
                     if let Some(file) = dlg.file() {
                         if let Some(p) = file.path() {
-                            match io_ics::import_ics(&p) {
-                                Ok(imported) => {
+                            match io_ics::import_ics_with_warnings(&p) {
+                                Ok((imported, warnings)) => {
                                     io_ics::merge_store(&mut store.borrow_mut(), imported);
-                                    let _ = io_ics::save_store(&store.borrow(), &path);
+                                    if let Err(e) = io_ics::save_store(&store.borrow(), &path) {
+                                        show_error(&w, &e.to_string());
+                                    }
                                     if let Some(v) = view_ref.borrow().as_ref() {
                                         v.refresh();
+                                    }
+                                    if !warnings.is_empty() {
+                                        show_warning(
+                                            &w,
+                                            &format!(
+                                                "{}\n\n{}",
+                                                i18n::t("import_warnings"),
+                                                warnings.join("\n")
+                                            ),
+                                        );
                                     }
                                 }
                                 Err(e) => show_error(&w, &e.to_string()),
@@ -283,6 +331,10 @@ fn build_ui(app: &Application) {
     }
 
     window.present();
+
+    if let Some(msg) = load_warning {
+        show_warning(&window, &msg);
+    }
 }
 
 fn show_error(parent: &impl IsA<gtk::Window>, msg: &str) {
@@ -290,6 +342,18 @@ fn show_error(parent: &impl IsA<gtk::Window>, msg: &str) {
         Some(parent),
         gtk::DialogFlags::MODAL,
         gtk::MessageType::Error,
+        gtk::ButtonsType::Ok,
+        msg,
+    );
+    dlg.connect_response(|d, _| d.close());
+    dlg.present();
+}
+
+fn show_warning(parent: &impl IsA<gtk::Window>, msg: &str) {
+    let dlg = gtk::MessageDialog::new(
+        Some(parent),
+        gtk::DialogFlags::MODAL,
+        gtk::MessageType::Warning,
         gtk::ButtonsType::Ok,
         msg,
     );

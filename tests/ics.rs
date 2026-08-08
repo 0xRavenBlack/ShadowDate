@@ -37,8 +37,9 @@ fn roundtrip_ics() {
 #[test]
 fn load_nonexistent_is_empty() {
     let p = std::env::temp_dir().join("cal_does_not_exist_xyz.ics");
-    let store = io_ics::load_store(&p);
+    let (store, warnings) = io_ics::load_store(&p).unwrap();
     assert!(store.items.is_empty());
+    assert!(warnings.is_empty());
 }
 
 #[test]
@@ -251,5 +252,52 @@ RRULE:FREQ=DAILY;COUNT=3\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     store.remove_series("series-1");
     assert!(store.items.is_empty());
     std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn bad_event_is_skipped_but_rest_is_kept() {
+    // A single malformed VEVENT must not fail the whole import: the valid
+    // event survives and the import reports a warning.
+    let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n\
+BEGIN:VEVENT\r\nUID:good-1\r\nSUMMARY:Fine\r\n\
+DTSTART:20260805T090000\r\nDTEND:20260805T100000\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:bad-1\r\nSUMMARY:Broken\r\n\
+DTSTART:not-a-date\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    let path = write_ics("cal_test_bad_event.ics", ics);
+    let (store, warnings) = io_ics::import_ics_with_warnings(&path).unwrap();
+    assert_eq!(store.items.len(), 1);
+    assert_eq!(store.items[0].uid, "good-1");
+    assert!(!warnings.is_empty());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn load_store_tolerant_of_partial_corruption() {
+    // Same resilience through the persistent-store loader: a broken entry is
+    // skipped and reported, never wiping the rest of the calendar.
+    let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n\
+BEGIN:VEVENT\r\nUID:ok-1\r\nSUMMARY:Fine\r\n\
+DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:broken\r\nDTSTART:garbage\r\nEND:VEVENT\r\n\
+END:VCALENDAR\r\n";
+    let path = write_ics("cal_test_load_tolerant.ics", ics);
+    let (store, warnings) = io_ics::load_store(&path).unwrap();
+    assert_eq!(store.items.len(), 1);
+    assert_eq!(store.items[0].uid, "ok-1");
+    assert!(!warnings.is_empty());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn backup_corrupt_preserves_unreadable_file() {
+    // The app must never silently start empty over a corrupt file: it backs the
+    // bytes up first so the data survives the next save.
+    let p = std::env::temp_dir().join("cal_backup_test.ics");
+    std::fs::write(&p, b"some \xff\xfe binary-ish garbage").unwrap();
+    let backup = io_ics::backup_corrupt(&p).unwrap();
+    assert!(backup.exists());
+    assert_ne!(backup, p);
+    std::fs::remove_file(&p).ok();
+    std::fs::remove_file(&backup).ok();
 }
 

@@ -158,8 +158,13 @@ fn reload_store(d: &mut Daemon) {
     if mtime.is_none() {
         return;
     }
-    match io_ics::import_ics(&path) {
-        Ok(store) => d.store = store,
+    match io_ics::import_ics_with_warnings(&path) {
+        Ok((store, warnings)) if warnings.is_empty() => d.store = store,
+        Ok((_, warnings)) => eprintln!(
+            "warning: reloading {} (keeping previous store): {} entries skipped",
+            path.display(),
+            warnings.len()
+        ),
         Err(e) => eprintln!(
             "warning: reloading {} (keeping previous store): {}",
             path.display(),
