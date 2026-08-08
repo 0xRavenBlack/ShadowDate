@@ -176,10 +176,13 @@ impl Store {
 /// `from_local_datetime(...).single()` may return `None`. In that case we fall
 /// back to interpreting the naive value as a UTC timestamp; this is acceptable
 /// for this app (times near a DST boundary may shift by an hour). `hour`/`min`
-/// are assumed valid (callers validate ranges before calling), so the
-/// `from_hms_opt(...).unwrap()` will not panic in normal use.
+/// are clamped instead of panicking so a hand-edited service config or form
+/// input can never crash the daemon/app.
 pub fn make_datetime(date: NaiveDate, hour: u32, min: u32) -> DateTime<Local> {
-    let ndt = NaiveDateTime::new(date, chrono::NaiveTime::from_hms_opt(hour, min, 0).unwrap());
+    let ndt = NaiveDateTime::new(
+        date,
+        chrono::NaiveTime::from_hms_opt(hour.min(23), min.min(59), 0).unwrap(),
+    );
     Local
         .from_local_datetime(&ndt)
         .single()

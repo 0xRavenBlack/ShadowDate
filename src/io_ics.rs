@@ -27,8 +27,12 @@ pub fn import_ics(path: &Path) -> Result<Store> {
 /// calendar/event that had to be skipped. Callers can surface the warnings and
 /// back up a partially-corrupt file before the next save overwrites it.
 pub fn import_ics_with_warnings(path: &Path) -> Result<(Store, Vec<String>)> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    // Read as bytes and strip a UTF-8 BOM: some editors/exports prepend one,
+    // and the `ical` lexer would otherwise choke on the invisible U+FEFF before
+    // "BEGIN:VCALENDAR", making the whole calendar look empty.
+    let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+    let content = String::from_utf8_lossy(bytes);
     Ok(parse_ics(&content))
 }
 
@@ -63,8 +67,21 @@ fn get_prop<'a>(props: &'a [Property], name: &str) -> Option<&'a Property> {
     props.iter().find(|p| p.name.eq_ignore_ascii_case(name))
 }
 
+/// Look up a parameter value (e.g. TZID) on a property. The `ical` crate stores
+/// params as `Vec<(key, Vec<value>)>` with the key uppercased.
 fn prop_value(props: &[Property], name: &str) -> Option<String> {
-    get_prop(props, name).and_then(|p| p.value.clone())
+    get_prop(props, name)
+        .and_then(|p| p.value.clone())
+        .map(|v| strip_crlf(&v))
+}
+
+/// Remove literal CR/LF from a raw property value. The `ical` crate's line
+/// unfolding turns a fold continuation (`CRLF `) into a literal `\n` inside the
+/// value, and valid files never contain raw newlines (real ones are escaped as
+/// `\n`), so any CR/LF here is a fold artifact or non-compliant input and is
+/// dropped before unescaping.
+fn strip_crlf(s: &str) -> String {
+    s.chars().filter(|c| *c != '\r' && *c != '\n').collect()
 }
 
 /// Look up a parameter value (e.g. TZID) on a property. The `ical` crate stores
@@ -85,9 +102,9 @@ fn parse_ical_datetime(prop: &Property) -> Result<DateTime<Local>> {
     let raw = prop
         .value
         .as_deref()
-        .ok_or_else(|| anyhow!("missing datetime value"))?
-        .trim();
-    parse_datetime_raw(raw, prop_param(prop, "TZID").as_deref())
+        .ok_or_else(|| anyhow!("missing datetime value"))?;
+    let raw = strip_crlf(raw);
+    parse_datetime_raw(raw.trim(), prop_param(prop, "TZID").as_deref())
 }
 
 fn parse_datetime_raw(raw: &str, tzid: Option<&str>) -> Result<DateTime<Local>> {
@@ -146,6 +163,13 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
         Some(u) => u,
         None => return Err(anyhow!("VEVENT without UID")),
     };
+    // Re-imported expanded occurrences carry the base event's UID in our
+    // private X-SHADOWDATE-SERIES-UID marker (see `store_to_ics`); without it,
+    // each occurrence would collapse back into an independent single event.
+    let series_uid = prop_value(props, "X-SHADOWDATE-SERIES-UID")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| uid.clone());
     let title = unescape_text(&prop_value(props, "SUMMARY").unwrap_or_default());
     let description = unescape_text(
         &prop_value(props, "DESCRIPTION").unwrap_or_default(),
@@ -172,7 +196,7 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
     let mk = |occ_uid: String, s: DateTime<Local>, e: DateTime<Local>| {
         Appointment::with_uid_series(crate::model::NewAppointment {
             uid: occ_uid,
-            series_uid: uid.clone(),
+            series_uid: series_uid.clone(),
             title: title.clone(),
             description: description.clone(),
             location: location.clone(),
@@ -435,9 +459,17 @@ fn month_day_to_date(year: i32, month: u32, md: i32) -> Option<NaiveDate> {
     let day = if md > 0 {
         md
     } else {
-        // Negative counts from the end of the month.
-        let last = NaiveDate::from_ymd_opt(year, month + if month == 12 { 0 } else { 1 }, 1)?
-            - TimeDelta::days(1);
+        // Negative counts from the end of the month. The trick: get the first
+        // day of the *next* month and subtract 1. December must wrap to January
+        // of the following year (month 13 is invalid for chrono, and month 12
+        // minus one day would be November 30 — which made -1 in December
+        // resolve to the 30th instead of the 31st).
+        let (next_year, next_month) = if month == 12 {
+            (year + 1, 1)
+        } else {
+            (year, month + 1)
+        };
+        let last = NaiveDate::from_ymd_opt(next_year, next_month, 1)? - TimeDelta::days(1);
         last.day() as i32 + 1 + md
     };
     NaiveDate::from_ymd_opt(year, month, day as u32)
@@ -620,13 +652,29 @@ pub fn store_to_ics(store: &Store, prodid: &str) -> String {
     out.push_str("CALSCALE:GREGORIAN\r\n");
     for a in &store.items {
         out.push_str("BEGIN:VEVENT\r\n");
-        out.push_str(&format!("UID:{}\r\n", a.uid));
-        out.push_str(&format!("SUMMARY:{}\r\n", escape_text(&a.title)));
+        out.push_str(&fold_line(&format!("UID:{}", a.uid)));
+        // Expanded occurrences of a recurring series share a `series_uid` (the
+        // base event's UID) that differs from their own UID. Without an explicit
+        // round-trip marker, a save→load cycle would flatten them back into
+        // independent single events and break series-wide edit/delete.
+        if a.series_uid != a.uid {
+            out.push_str(&fold_line(&format!(
+                "X-SHADOWDATE-SERIES-UID:{}",
+                a.series_uid
+            )));
+        }
+        out.push_str(&fold_line(&format!("SUMMARY:{}", escape_text(&a.title))));
         if !a.description.is_empty() {
-            out.push_str(&format!("DESCRIPTION:{}\r\n", escape_text(&a.description)));
+            out.push_str(&fold_line(&format!(
+                "DESCRIPTION:{}",
+                escape_text(&a.description)
+            )));
         }
         if !a.location.is_empty() {
-            out.push_str(&format!("LOCATION:{}\r\n", escape_text(&a.location)));
+            out.push_str(&fold_line(&format!(
+                "LOCATION:{}",
+                escape_text(&a.location)
+            )));
         }
         if a.all_day {
             out.push_str(&format!("DTSTART;VALUE=DATE:{}\r\n", a.start.format("%Y%m%d")));
@@ -664,6 +712,51 @@ fn escape_text(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
+/// Fold a content line to at most 75 octets per RFC 5545 §3.1: each chunk is
+/// followed by CRLF and a single leading space on the continuation. Long
+/// SUMMARY/DESCRIPTION/LOCATION values would otherwise be emitted as
+/// non-compliant 1000+ octet lines that strict consumers may reject.
+///
+/// The fold point is kept strictly mid-word (never adjacent to a space): the
+/// `ical` parser trims trailing whitespace from every physical line and eats
+/// the continuation's leading space, so a boundary next to a space would lose
+/// it on re-import. Cutting inside a word keeps both sides non-whitespace and
+/// the round-trip byte-identical.
+fn fold_line(line: &str) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    let mut width = 75;
+    while rest.len() > width {
+        let mut cut = width;
+        while cut > 0
+            && (cut >= rest.len()
+                || rest[..cut].ends_with(' ')
+                || rest[cut..].starts_with(' '))
+        {
+            cut -= 1;
+        }
+        if cut == 0 {
+            // Pathological input (e.g. an over-long run of spaces): no mid-word
+            // spot exists, so split at the width anyway.
+            cut = width;
+        }
+        // Never split a UTF-8 sequence.
+        while cut > 0 && !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        if cut == 0 {
+            cut = 1; // a single codepoint, well below the 75-octet limit
+        }
+        out.push_str(&rest[..cut]);
+        out.push_str("\r\n ");
+        rest = &rest[cut..];
+        width = 74;
+    }
+    out.push_str(rest);
+    out.push_str("\r\n");
+    out
+}
+
 /// Reverse of `escape_text`. Undo the specific escapes in the opposite order
 /// they were introduced so a literal `\\;` is decoded to `\;` not `;`.
 fn unescape_text(s: &str) -> String {
@@ -692,10 +785,13 @@ fn parse_date_list(prop: &Property) -> Vec<NaiveDate> {
             if tok.len() == 8 && tok.chars().all(|c| c.is_ascii_digit()) {
                 return NaiveDate::parse_from_str(tok, "%Y%m%d").ok();
             }
-            // DATE-TIME: parse and extract the date portion.
+            // DATE-TIME: parse and extract the date portion. DATE-TIME values
+            // carry the timezone on the *property* (the common `EXDATE;TZID=...`
+            // form), so preserve the original params instead of treating the
+            // value as floating local time.
             let prop = Property {
                 name: "DT".into(),
-                params: None,
+                params: prop.params.clone(),
                 value: Some(tok.to_string()),
             };
             parse_ical_datetime(&prop)

@@ -301,3 +301,104 @@ fn backup_corrupt_preserves_unreadable_file() {
     std::fs::remove_file(&backup).ok();
 }
 
+#[test]
+fn long_text_survives_line_folding_roundtrip() {
+    // Values longer than 75 octets are folded on export (RFC 5545 §3.1); they
+    // must come back byte-identical on import, not gain stray newlines.
+    let long_title = "A suspiciously lengthy meeting title that deliberately exceeds the seventy-five octet line limit for iCalendar content lines, on purpose".to_string();
+    assert!(long_title.len() > 75);
+    let mut store = Store::new();
+    store.insert(Appointment::with_uid(
+        "fold-1".to_string(),
+        long_title.clone(),
+        format!("Description with a very long body that also keeps going far past the fold threshold to exercise the continuation path thoroughly: {}", "y".repeat(120)),
+        "Location with an extremely long address that crosses the seventy-five octet boundary as well, stretching well beyond it".to_string(),
+        make_datetime(d(2026, 8, 5), 9, 30),
+        make_datetime(d(2026, 8, 5), 10, 0),
+        false,
+    ));
+    let path = std::env::temp_dir().join("cal_test_fold.ics");
+    io_ics::save_store(&store, &path).unwrap();
+    // Physical lines must not exceed 75 octets + CRLF.
+    let raw = std::fs::read_to_string(&path).unwrap();
+    for line in raw.split("\r\n") {
+        assert!(line.len() <= 75, "unfolded line too long: {:?}", line);
+    }
+    let loaded = io_ics::import_ics(&path).unwrap();
+    let a = &loaded.items[0];
+    assert_eq!(a.title, long_title);
+    assert!(a.description.starts_with("Description with a very long body"));
+    assert!(a.location.starts_with("Location with an extremely long address"));
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn series_uid_survives_save_load() {
+    // Expanded occurrences share a series_uid distinct from their own UID. That
+    // grouping must survive a save -> load cycle so series-wide edit/delete
+    // still acts on the whole series afterwards.
+    let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n\
+BEGIN:VEVENT\r\nUID:series-rt\r\nSUMMARY:Daily\r\n\
+DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
+RRULE:FREQ=DAILY;COUNT=3\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    let path = write_ics("cal_test_series_rt.ics", ics);
+    let store = io_ics::import_ics(&path).unwrap();
+    assert_eq!(store.items.len(), 3);
+    assert!(store.items.iter().all(|a| a.series_uid == "series-rt"));
+    io_ics::save_store(&store, &path).unwrap();
+    let reloaded = io_ics::import_ics(&path).unwrap();
+    assert_eq!(reloaded.items.len(), 3);
+    // Every occurrence still belongs to the same series, not independent events.
+    let uids: Vec<&str> = reloaded.items.iter().map(|a| a.uid.as_str()).collect();
+    assert!(uids.iter().any(|u| u.contains("#")), "occurrences should have derived UIDs");
+    assert!(reloaded.items.iter().all(|a| a.series_uid == "series-rt"));
+    // And deleting the series removes all three.
+    let mut s = reloaded;
+    s.remove_series("series-rt");
+    assert!(s.items.is_empty());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn utf8_bom_is_stripped_on_import() {
+    // Some editors prepend a UTF-8 BOM; the lexer would otherwise see garbage
+    // before BEGIN:VCALENDAR and drop the whole calendar.
+    let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n\
+BEGIN:VEVENT\r\nUID:bom-1\r\nSUMMARY:Bom\r\n\
+DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    let path = std::env::temp_dir().join("cal_test_bom.ics");
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(ics.as_bytes());
+    std::fs::write(&path, &bytes).unwrap();
+    let (store, warnings) = io_ics::import_ics_with_warnings(&path).unwrap();
+    assert_eq!(store.items.len(), 1);
+    assert_eq!(store.items[0].uid, "bom-1");
+    assert!(warnings.is_empty());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn negative_bymonthday_in_december() {
+    // BYMONTHDAY=-1 in December must resolve to Dec 31, not Dec 30 (the old
+    // code subtracted one day from the first of December instead of wrapping
+    // to the first of January).
+    let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n\
+BEGIN:VEVENT\r\nUID:dec-last\r\nSUMMARY:NewYearsEve\r\n\
+DTSTART;VALUE=DATE:20261201\r\nDTEND;VALUE=DATE:20261202\r\n\
+RRULE:FREQ=MONTHLY;COUNT=1;BYMONTH=12;BYMONTHDAY=-1\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    let path = write_ics("cal_test_dec_last.ics", ics);
+    let store = io_ics::import_ics(&path).unwrap();
+    assert_eq!(store.items.len(), 1);
+    assert_eq!(store.on_date(d(2026, 12, 31)).len(), 1);
+    assert_eq!(store.on_date(d(2026, 12, 30)).len(), 0);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn make_datetime_clamps_out_of_range_components() {
+    // A hand-edited service config with hour=99/min=99 must not panic the
+    // daemon; the values are clamped instead.
+    let dt = make_datetime(d(2026, 8, 5), 99, 99);
+    assert_eq!(dt.format("%H:%M").to_string(), "23:59");
+}
+

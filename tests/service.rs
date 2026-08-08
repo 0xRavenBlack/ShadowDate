@@ -222,6 +222,23 @@ fn config_defaults_on_invalid_content() {
 }
 
 #[test]
+fn config_clamps_out_of_range_values() {
+    // A hand-edited config with absurd hours/minutes must not panic the daemon
+    // when scheduling; values are clamped to valid ranges instead.
+    let p = std::env::temp_dir().join("shadowdate_service_clamp.toml");
+    std::fs::write(
+        &p,
+        "[reminders]\nlead_min = 5000\nall_day_hour = 99\nall_day_minute = 99\n",
+    )
+    .unwrap();
+    let cfg = ServiceConfig::load(&p);
+    assert_eq!(cfg.reminders.lead_min, 24 * 60);
+    assert_eq!(cfg.reminders.all_day_hour, 23);
+    assert_eq!(cfg.reminders.all_day_minute, 59);
+    std::fs::remove_file(&p).ok();
+}
+
+#[test]
 fn config_save_load_roundtrip() {
     let p = std::env::temp_dir().join("shadowdate_service_rt.toml");
     let cfg = ServiceConfig {

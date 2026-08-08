@@ -67,7 +67,9 @@ impl ServiceConfig {
         }
         match fs::read_to_string(path) {
             Ok(content) => match toml::from_str::<ServiceConfig>(&content) {
-                Ok(cfg) => cfg,
+                // Sanitize hand-edited values so the daemon can never panic on an
+                // out-of-range wall-clock time (see `sanitize_config`).
+                Ok(cfg) => sanitize_config(cfg),
                 Err(e) => {
                     eprintln!(
                         "warning: invalid service config {} ({}); using defaults",
@@ -93,6 +95,18 @@ impl ServiceConfig {
         let data = toml::to_string(self).context("serializing service config")?;
         crate::io_ics::write_atomic(path, &data)
     }
+}
+
+/// Clamp reminder config values to valid ranges. The settings dialog already
+/// constrains its inputs, but the config file is user-editable and the daemon
+/// reads it directly: a bad hour/minute would otherwise panic `make_datetime`
+/// (release builds use `panic = "abort"`, so the unit would crash-loop).
+fn sanitize_config(mut cfg: ServiceConfig) -> ServiceConfig {
+    cfg.reminders.all_day_hour = cfg.reminders.all_day_hour.min(23);
+    cfg.reminders.all_day_minute = cfg.reminders.all_day_minute.min(59);
+    // A lead of more than a day warns absurdly early; cap it to 24 hours.
+    cfg.reminders.lead_min = cfg.reminders.lead_min.min(24 * 60);
+    cfg
 }
 
 /// When an appointment's reminder should fire. Timed events are reminded
