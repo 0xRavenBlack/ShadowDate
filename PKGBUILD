@@ -13,7 +13,7 @@ source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/downloa
         "0xravenblack.shadowdata.desktop"
         "resources/svg/logo.svg"
         "LICENSE")
-sha256sums=('92f59b904c18a2701f870678732a797d1ab9d7a17fc82e325b634e4c8c54f32a'
+sha256sums=('03168388fac7304b84678c928ef2622da564c5a5c85d8b80228b89f4f2011df2'
             'SKIP'
             'SKIP'
             'SKIP')
