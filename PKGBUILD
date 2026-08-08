@@ -1,7 +1,7 @@
 # Maintainer: Mike Ravenblack <0xRavenBlack@github>
 pkgname=shadowdate
 _appid=0xravenblack.shadowdata
-pkgver=0.5.1
+pkgver=0.6.0
 pkgrel=1
 pkgdesc="A gothic dark-pastel desktop calendar for Linux (Rust + GTK4) with iCalendar support and a background reminder service"
 arch=('x86_64')
@@ -18,8 +18,8 @@ source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/downloa
         "logo.svg::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/resources/svg/logo.svg"
         "shadowdate-service.service::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/shadowdate-service.service"
         "LICENSE::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/LICENSE")
-sha256sums=('35c88fd1cdbc83205d42160527382518687a6351109115eb760d33ea1d492be6'
-            '34718eab928ebdf561236df9346661413d8eb1064d3c387f1116c2e032cf2bfc'
+sha256sums=('43cb5ee3e7e082dd62ca9d750e4eddf187e975508fc513e15970ee2bc39b681e'
+            '91e7f0a5788c61069b24ac2dc2d3e9a57ad086297c4e23079138d90d98f9c99b'
             '8a9962947917a207b2648c9be705f5e6c2f64120085bf514929fe11c20ca8b6e'
             '3c0e4fbf0037795dcc9013a871cf18a289ab183ac0809111e74a58580d0b1c03'
             '1b0a55a83d591047c5e244a40f991fbb151bf98aeb39a5856272731442043301'
