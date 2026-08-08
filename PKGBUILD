@@ -9,6 +9,7 @@ url="https://github.com/0xRavenBlack/ShadowDate"
 options=('!debug')
 license=('MIT')
 depends=('gtk4' 'glib2')
+install=shadowdate.install
 # Local sources ship flat next to the PKGBUILD (makepkg resolves local sources
 # by basename in the build directory), mirroring 0xravenblack.shadowdata.desktop
 # and LICENSE at the repo root.
@@ -17,9 +18,11 @@ source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/downloa
         "0xravenblack.shadowdata.desktop"
         "logo.svg"
         "shadowdate-service.service"
+        "shadowdate.install"
         "LICENSE")
 sha256sums=('20a3758963b1cbd456c361907c95bd141e9f2b9f4ed6b46cb6a42242f9180f85'
             '34718eab928ebdf561236df9346661413d8eb1064d3c387f1116c2e032cf2bfc'
+            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP'

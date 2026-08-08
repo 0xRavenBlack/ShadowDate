@@ -23,7 +23,17 @@ fn main() -> gtk::glib::ExitCode {
         load_css();
         gtk::Window::set_default_icon_name(APP_ID);
     });
-    app.connect_activate(build_ui);
+    // Single instance: gio::Application registers `APP_ID` on the session bus,
+    // so a second launch activates the running instance instead of starting a
+    // new process. Re-activation must only present the existing window, never
+    // build another one.
+    app.connect_activate(|app| {
+        if app.windows().is_empty() {
+            build_ui(app);
+        } else if let Some(w) = app.windows().first() {
+            w.present();
+        }
+    });
     app.run()
 }
 

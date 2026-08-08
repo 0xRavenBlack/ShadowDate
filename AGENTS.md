@@ -53,11 +53,13 @@ resources/
     screenshot.jpg        # used by README only
 PKGBUILD / .SRCINFO     # AUR package: installs both prebuilt release binaries
                         # (+ local .desktop/svg icon/systemd unit/license)
-0xravenblack.shadowdata.desktop / logo.svg / shadowdate-service.service / LICENSE
+0xravenblack.shadowdata.desktop / logo.svg / shadowdate-service.service /
+shadowdate.install / LICENSE
                         # local copies shipped next to the PKGBUILD; makepkg
                         # resolves local sources by basename in the build dir, so
                         # these live flat at the repo root (desktop + LICENSE
-                        # duplicate resources/, logo.svg mirrors resources/svg/)
+                        # duplicate resources/, logo.svg mirrors resources/svg/,
+                        # shadowdate-service.service mirrors resources/)
 ```
 
 ## Build & run
@@ -71,7 +73,13 @@ PKGBUILD / .SRCINFO     # AUR package: installs both prebuilt release binaries
 - AUR build: `makepkg` — downloads only the prebuilt `shadowdate-<pkgver>-x86_64-linux`
   and `shadowdate-service-<pkgver>-x86_64-linux` binaries from the GitHub release
   (the desktop entry, icon, systemd unit, and license ship as local files next to
-  the PKGBUILD); no compilation, no source download. NOTE: do not run `makepkg`
+  the PKGBUILD); no compilation, no source download. Local sources must be **flat
+  filenames next to the PKGBUILD** (makepkg resolves them by basename —
+  `resources/...` paths silently fail to build). The package ships an `install=`
+  script (`shadowdate.install`) that **enables and starts the reminder service**
+  for the user who ran the install (`post_install`/`post_upgrade` run
+  `systemctl --user -M "$SUDO_USER@.host" enable --now ...`; `pre_remove` stops
+  it). NOTE: do not run `makepkg`
   inside the repo itself (its `src/` dir collides with the tracked source — and
   `src/` is NOT gitignored, so a stray build dir shows up in `git status`); copy
   the repo or set a separate `BUILDDIR`.

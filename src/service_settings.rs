@@ -113,7 +113,7 @@ pub fn run_service_settings(parent: &impl IsA<gtk::Window>) {
         let dlg = dlg.clone();
         let btn = enable_btn.clone();
         btn.connect_clicked(move |_| match systemctl(&["enable", "--now", SYSTEMD_UNIT]) {
-            Ok(()) => refresh_status(&status, &enable_btn, &disable_btn),
+            Ok(()) => poll_status(&status, &enable_btn, &disable_btn, true),
             Err(msg) => show_error(&dlg, &msg),
         });
     }
@@ -124,7 +124,7 @@ pub fn run_service_settings(parent: &impl IsA<gtk::Window>) {
         let dlg = dlg.clone();
         let btn = disable_btn.clone();
         btn.connect_clicked(move |_| match systemctl(&["disable", "--now", SYSTEMD_UNIT]) {
-            Ok(()) => refresh_status(&status, &enable_btn, &disable_btn),
+            Ok(()) => poll_status(&status, &enable_btn, &disable_btn, false),
             Err(msg) => show_error(&dlg, &msg),
         });
     }
@@ -207,7 +207,11 @@ fn service_running() -> bool {
 }
 
 fn refresh_status(status: &Label, enable_btn: &Button, disable_btn: &Button) {
-    let running = service_running();
+    set_status(status, enable_btn, disable_btn, service_running());
+}
+
+/// Apply a known running state to the status label and button sensitivity.
+fn set_status(status: &Label, enable_btn: &Button, disable_btn: &Button, running: bool) {
     status.set_text(if running {
         i18n::t("service_running")
     } else {
@@ -215,6 +219,34 @@ fn refresh_status(status: &Label, enable_btn: &Button, disable_btn: &Button) {
     });
     enable_btn.set_sensitive(!running);
     disable_btn.set_sensitive(running);
+}
+
+/// After `systemctl enable/disable --now` the unit state settles a moment after
+/// the command returns (the daemon owns its D-Bus name only once its main loop
+/// runs), so an immediate `NameHasOwner` read races. Poll the session bus until
+/// it reaches `wait_for_running` (or a short timeout), updating the UI live.
+fn poll_status(
+    status: &Label,
+    enable_btn: &Button,
+    disable_btn: &Button,
+    wait_for_running: bool,
+) {
+    let status = status.clone();
+    let enable_btn = enable_btn.clone();
+    let disable_btn = disable_btn.clone();
+    let attempts = Rc::new(RefCell::new(0u32));
+    let attempts2 = attempts.clone();
+    glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
+        let n = *attempts2.borrow() + 1;
+        *attempts2.borrow_mut() = n;
+        let running = service_running();
+        if running == wait_for_running || n >= 20 {
+            set_status(&status, &enable_btn, &disable_btn, running);
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
+    });
 }
 
 /// Run a `systemctl --user` subcommand. On failure returns a localized hint plus
