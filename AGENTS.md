@@ -49,15 +49,14 @@ resources/
     face.svg              # vector background portrait, shown translucently behind the grid
   img/
     screenshot.jpg        # used by README only
-PKGBUILD / .SRCINFO     # AUR package: installs both prebuilt release binaries
-                        # (+ local .desktop/svg icon/systemd unit/license)
-0xravenblack.shadowdata.desktop / logo.svg / shadowdate-service.service /
-shadowdate.install / LICENSE
-                        # local copies shipped next to the PKGBUILD; makepkg
-                        # resolves local sources by basename in the build dir, so
-                        # these live flat at the repo root (logo.svg mirrors
-                        # resources/svg/; the desktop entry + systemd unit exist
-                        # only at the root, LICENSE is the canonical license)
+PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — every
+                        # source (desktop entry, icon, systemd unit, license) is
+                        # downloaded at build time from the repo at the release
+                        # tag via raw.githubusercontent.com
+0xravenblack.shadowdata.desktop / shadowdate-service.service / LICENSE
+                        # the only repo files the PKGBUILD harvests from the repo
+                        # root (logo.svg comes from resources/svg/); they exist
+                        # at the release tag, so no flat local copies are needed
 ```
 
 ## Build & run
@@ -68,16 +67,12 @@ shadowdate.install / LICENSE
   enable --now shadowdate-service` after installing the unit)
 - Test: `cargo test` (ics round-trip + load tests + service scheduling tests)
 - Lint/typecheck: `cargo clippy --all-targets` (clean; no warnings expected)
-- AUR build: `makepkg` — downloads only the prebuilt `shadowdate-<pkgver>-x86_64-linux`
+- AUR build: `makepkg` — the AUR package is **just the PKGBUILD** (plus the
+  generated `.SRCINFO`). It downloads the prebuilt `shadowdate-<pkgver>-x86_64-linux`
   and `shadowdate-service-<pkgver>-x86_64-linux` binaries from the GitHub release
-  (the desktop entry, icon, systemd unit, and license ship as local files next to
-  the PKGBUILD); no compilation, no source download. Local sources must be **flat
-  filenames next to the PKGBUILD** (makepkg resolves them by basename —
-  `resources/...` paths silently fail to build). The package ships an `install=`
-  script (`shadowdate.install`) that **enables and starts the reminder service**
-  for the user who ran the install (`post_install`/`post_upgrade` run
-  `systemctl --user -M "$SUDO_USER@.host" enable --now ...`; `pre_remove` stops
-  it). NOTE: do not run `makepkg`
+  and harvests the desktop entry, icon, systemd unit, and license from the repo
+  at the release tag via raw.githubusercontent.com; no compilation, no local
+  source files, no install script. NOTE: do not run `makepkg`
   inside the repo itself (its `src/` dir collides with the tracked source — and
   `src/` is NOT gitignored, so a stray build dir shows up in `git status`); copy
   the repo or set a separate `BUILDDIR`.

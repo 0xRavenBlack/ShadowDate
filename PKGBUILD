@@ -9,24 +9,21 @@ url="https://github.com/0xRavenBlack/ShadowDate"
 options=('!debug')
 license=('MIT')
 depends=('gtk4' 'glib2')
-install=shadowdate.install
-# Local sources ship flat next to the PKGBUILD (makepkg resolves local sources
-# by basename in the build directory), mirroring 0xravenblack.shadowdata.desktop
-# and LICENSE at the repo root.
+# The AUR package is just this PKGBUILD: every non-binary source (desktop
+# entry, icon, systemd unit, license) is harvested from the repository at the
+# release tag via raw.githubusercontent.com, so no local files are needed.
 source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/download/v${pkgver}/shadowdate-${pkgver}-x86_64-linux"
         "${pkgname}-service::https://github.com/0xRavenBlack/ShadowDate/releases/download/v${pkgver}/shadowdate-service-${pkgver}-x86_64-linux"
-        "0xravenblack.shadowdata.desktop"
-        "logo.svg"
-        "shadowdate-service.service"
-        "shadowdate.install"
-        "LICENSE")
+        "0xravenblack.shadowdata.desktop::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/0xravenblack.shadowdata.desktop"
+        "logo.svg::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/resources/svg/logo.svg"
+        "shadowdate-service.service::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/shadowdate-service.service"
+        "LICENSE::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/LICENSE")
 sha256sums=('35c88fd1cdbc83205d42160527382518687a6351109115eb760d33ea1d492be6'
             '34718eab928ebdf561236df9346661413d8eb1064d3c387f1116c2e032cf2bfc'
-            'SKIP'
-            'SKIP'
-            'SKIP'
-            'SKIP'
-            'SKIP')
+            '8a9962947917a207b2648c9be705f5e6c2f64120085bf514929fe11c20ca8b6e'
+            '3c0e4fbf0037795dcc9013a871cf18a289ab183ac0809111e74a58580d0b1c03'
+            '1b0a55a83d591047c5e244a40f991fbb151bf98aeb39a5856272731442043301'
+            '32c7d774d68ff9f1adc053fd55c2ac1a1c0f31bbfabed2528acb96c05ce64e00')
 
 package() {
     cd "${srcdir}"
