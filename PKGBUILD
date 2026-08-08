@@ -11,7 +11,7 @@ license=('MIT')
 depends=('gtk4' 'glib2')
 source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/download/v${pkgver}/shadowdate-${pkgver}-x86_64-linux"
         "0xravenblack.shadowdata.desktop"
-        "Logo.png"
+        "resources/svg/logo.svg"
         "LICENSE")
 sha256sums=('92f59b904c18a2701f870678732a797d1ab9d7a17fc82e325b634e4c8c54f32a'
             'SKIP'
@@ -28,9 +28,9 @@ package() {
     install -Dm644 "0xravenblack.shadowdata.desktop" \
         "${pkgdir}/usr/share/applications/${_appid}.desktop"
 
-    # Icon (Logo.png is a 128x128 raster PNG)
-    install -Dm644 "Logo.png" \
-        "${pkgdir}/usr/share/icons/hicolor/128x128/apps/${_appid}.png"
+    # Icon (logo.svg is a vector SVG; installed as the scalable themed icon)
+    install -Dm644 "resources/svg/logo.svg" \
+        "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${_appid}.svg"
 
     # License
     install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

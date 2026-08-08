@@ -15,7 +15,7 @@ Previously known as "calendar"; the app was renamed to **ShadowDate** (binary
 ## Layout
 
 ```
-Cargo.toml              # [[bin]] shadowdate + [lib] calendar; deps: gtk4 (0.11), ical, chrono, chrono-tz, uuid, anyhow
+Cargo.toml              # [[bin]] shadowdate + [lib] calendar; deps: gtk4 (0.11), ical, chrono, chrono-tz, uuid, anyhow, resvg
 src/
   lib.rs                # pub mod model; pub mod io_ics;  (library target for tests)
   main.rs               # app bootstrap, window, headerbar, file choosers
@@ -32,12 +32,13 @@ tests/
 resources/
   style.css             # dark pastel theme (loaded at runtime via CssProvider)
   0xravenblack.shadowdata.desktop  # desktop entry (also installed by PKGBUILD)
+  svg/
+    logo.svg              # vector app logo (embedded; shown at 30px, rasterized at 64px)
+    face.svg              # vector background portrait, shown translucently behind the grid
   img/
-    Logo.png              # 128x128 app logo (embedded; shown at 30px, scaled to 64px texture)
-    portrait_face.png     # 1024x1024, shown translucently behind the calendar grid
     screenshot.jpg        # used by README only
-PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ local .desktop/icon/license)
-0xravenblack.shadowdata.desktop / Logo.png / LICENSE  # local copies shipped next to the PKGBUILD
+PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ local .desktop/svg icon/license)
+0xravenblack.shadowdata.desktop / LICENSE  # local copies shipped next to the PKGBUILD
 ```
 
 ## Build & run
@@ -62,8 +63,9 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ l
   `windowrule = size 1024 560, class:(0xravenblack.shadowdata)`.
 - **Close button**: default title-buttons hidden (`set_show_title_buttons(false)`);
   a textual **"Exit"** button (`.exit-button` dark red CSS) closes the window.
-- **Branding**: the `Logo.png` is embedded (`include_bytes!`) and shown as a 30px
-  rounded icon plus a "ShadowDate" title in the headerbar's left side (`.brand-box`).
+- **Branding**: the `logo.svg` is embedded (`include_bytes!`, rasterized with `resvg`)
+  and shown as a 30px rounded icon plus a "ShadowDate" title in the headerbar's left
+  side (`.brand-box`).
 - **Headerbar controls** (always visible, even when small): leftmost = brand
   (logo + "ShadowDate"); then `‹ Today ›` nav box; right = `+ New`, `Import`,
   `Export`, `Exit`. All labels are localized via `i18n::t`.
@@ -71,7 +73,7 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ l
   so there is no responsive/stacking code path; the two-pane layout
   (grid + side list) is always horizontal.
 - **Background portrait**: the calendar content is wrapped in a `gtk::Overlay`; the
-  `portrait_face.png` (embedded) sits behind as a translucent backdrop
+  `face.svg` (embedded, rasterized by `resvg`) sits behind as a translucent backdrop
   (`.bg-portrait`, `opacity: 0.30`), aligned to the start (left), full height, uniform
   width (aspect ratio preserved). Day cells are semi-transparent (`rgba(...)`) so the
   portrait shows through.
@@ -144,13 +146,14 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ l
   while `calendar_view.rs` / `form_dialog.rs` / `i18n.rs` / `images.rs` use
   `calendar::model`. The binary name is `shadowdate`; do not rename the lib crate
   without updating those paths.
-- Embedded images: add new art via `include_bytes!` in `images.rs` and decode through
-  a `Pixbuf` memory stream → `gdk::Texture` (the gdk4 `from_bytes` helper is not
-  available on this version). Keep source PNGs small (Logo 128×128, portrait 1024×1024):
-  `texture_from` scales the decoded pixbuf down to a display cap (logo 64px, portrait
-  512px) before uploading to a GPU texture so full-resolution sources never allocate
-  multi-megabyte textures. Re-encode assets with ImageMagick (`convert in.png -resize
-  NxN out.png`) rather than committing huge PNGs.
+- Embedded images: add new art via `include_bytes!` in `images.rs` and rasterize the
+  SVG with `resvg` (bundles `usvg` + `tiny-skia`, pure Rust, no system deps) into a
+  `tiny_skia::Pixmap`, then upload it as a `gdk::MemoryTexture` (the gdk4 `from_bytes`
+  helper is not available on this version). `texture_from` rasterizes at a display cap
+  (logo 64px, portrait 512px) so the GPU texture never grows multi-megabyte. Note: the
+  gdk-pixbuf SVG loader is NOT installed on this system, so `Pixbuf::from_stream`
+  cannot load the SVGs. Keep SVG sources reasonably small; re-encode with
+  `rsvg-convert`/ImageMagick rather than committing huge files.
 - Keep CSS classes consistent with `resources/style.css` (pastel accents: lavender
   `#b39ddb`, mint `#a0e7c0`, peach `#f6c79b`, pink `#f4a3c0`, sky `#a7c7e7`, lilac
   `#c7b6e8` on charcoal `#1b1b26`).
@@ -165,7 +168,7 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ l
 - Change theme: edit `resources/style.css` (loaded at startup in `load_css`).
 - Add a language: add a column to every `match` in `i18n.rs` (and the two lookup
   tables in `format_date`/`format_month_year`), then extend `Lang` + `lang_index`.
-- Change the background portrait / logo: replace the PNGs in `resources/img/` and
+- Change the background portrait / logo: replace the SVGs in `resources/svg/` and
   rebuild (they are embedded; no runtime path needed).
 - Change window size/float behavior: edit `main.rs` (`set_default_size`) and the
   Hyprland `windowrule`s in `~/.config/hypr/hyprland.conf`, then `hyprctl reload`.

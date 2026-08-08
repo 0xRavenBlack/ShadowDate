@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="resources/img/Logo.png" alt="ShadowDate logo" width="180"/>
+<img src="resources/svg/logo.svg" alt="ShadowDate logo" width="180"/>
 
 # 🌙 Shadow Date
 
