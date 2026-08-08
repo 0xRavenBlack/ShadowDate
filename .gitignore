@@ -5,7 +5,6 @@ target
 
 # AUR / makepkg build artifacts
 pkg/
-src/
 *.pkg.tar.*
 *.pkg.tar.zst
 *.pkg.tar.xz

@@ -21,9 +21,9 @@ pub fn run_appointment_dialog(
 ) {
     let dialog = Dialog::with_buttons(
         Some(if existing.is_some() {
-            crate::i18n::t("edit_appointment")
+            calendar::i18n::t("edit_appointment")
         } else {
-            crate::i18n::t("new_appointment")
+            calendar::i18n::t("new_appointment")
         }),
         Some(parent),
         gtk::DialogFlags::MODAL,
@@ -55,15 +55,15 @@ pub fn run_appointment_dialog(
     content.append(&form);
 
     let title_entry = Entry::builder()
-        .placeholder_text(crate::i18n::t("add_title"))
+        .placeholder_text(calendar::i18n::t("add_title"))
         .hexpand(true)
         .build();
     let desc_entry = Entry::builder()
-        .placeholder_text(crate::i18n::t("add_description"))
+        .placeholder_text(calendar::i18n::t("add_description"))
         .hexpand(true)
         .build();
     let loc_entry = Entry::builder()
-        .placeholder_text(crate::i18n::t("add_location"))
+        .placeholder_text(calendar::i18n::t("add_location"))
         .hexpand(true)
         .build();
 
@@ -72,7 +72,7 @@ pub fn run_appointment_dialog(
     let start_min = time_spin(59.0);
     let end_hour = time_spin(23.0);
     let end_min = time_spin(59.0);
-    let all_day = CheckButton::builder().label(crate::i18n::t("all_day")).build();
+    let all_day = CheckButton::builder().label(calendar::i18n::t("all_day")).build();
 
     if let Some(a) = existing {
         title_entry.set_text(&a.title);
@@ -94,22 +94,22 @@ pub fn run_appointment_dialog(
 
     // --- Details section ---
     let heading = Label::new(Some(if existing.is_some() {
-        crate::i18n::t("edit_appointment")
+        calendar::i18n::t("edit_appointment")
     } else {
-        crate::i18n::t("new_appointment")
+        calendar::i18n::t("new_appointment")
     }));
     heading.add_css_class("form-heading");
     heading.set_xalign(0.0);
     form.append(&heading);
 
     let details = section_box();
-    details.append(&row_widget(crate::i18n::t("title"), &title_entry));
-    details.append(&row_widget(crate::i18n::t("description"), &desc_entry));
-    details.append(&row_widget(crate::i18n::t("location"), &loc_entry));
+    details.append(&row_widget(calendar::i18n::t("title"), &title_entry));
+    details.append(&row_widget(calendar::i18n::t("description"), &desc_entry));
+    details.append(&row_widget(calendar::i18n::t("location"), &loc_entry));
     form.append(&details);
 
     // --- Date & time section ---
-    let dt_heading = Label::new(Some(crate::i18n::t("date_time")));
+    let dt_heading = Label::new(Some(calendar::i18n::t("date_time")));
     dt_heading.add_css_class("form-section-title");
     dt_heading.set_xalign(0.0);
     form.append(&dt_heading);
@@ -127,16 +127,16 @@ pub fn run_appointment_dialog(
     time_grid.set_row_spacing(8);
     time_grid.set_column_spacing(8);
 
-    let hours_hdr = Label::new(Some(crate::i18n::t("hours")));
+    let hours_hdr = Label::new(Some(calendar::i18n::t("hours")));
     hours_hdr.add_css_class("time-caption");
     hours_hdr.set_xalign(0.5);
-    let mins_hdr = Label::new(Some(crate::i18n::t("minutes")));
+    let mins_hdr = Label::new(Some(calendar::i18n::t("minutes")));
     mins_hdr.add_css_class("time-caption");
     mins_hdr.set_xalign(0.5);
     time_grid.attach(&hours_hdr, 1, 0, 1, 1);
     time_grid.attach(&mins_hdr, 3, 0, 1, 1);
 
-    let start_lbl = Label::new(Some(crate::i18n::t("start")));
+    let start_lbl = Label::new(Some(calendar::i18n::t("start")));
     start_lbl.add_css_class("time-row-label");
     start_lbl.set_xalign(0.0);
     start_lbl.set_valign(gtk::Align::Center);
@@ -147,7 +147,7 @@ pub fn run_appointment_dialog(
     time_grid.attach(&start_colon, 2, 1, 1, 1);
     time_grid.attach(&start_min, 3, 1, 1, 1);
 
-    let end_lbl = Label::new(Some(crate::i18n::t("end")));
+    let end_lbl = Label::new(Some(calendar::i18n::t("end")));
     end_lbl.add_css_class("time-row-label");
     end_lbl.set_xalign(0.0);
     end_lbl.set_valign(gtk::Align::Center);
@@ -166,14 +166,14 @@ pub fn run_appointment_dialog(
     let action_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     action_row.set_hexpand(true);
     action_row.set_margin_top(6);
-    let cancel_btn = Button::with_label(crate::i18n::t("cancel"));
+    let cancel_btn = Button::with_label(calendar::i18n::t("cancel"));
     {
         let dialog = dialog.clone();
         cancel_btn.connect_clicked(move |_| {
             dialog.response(ResponseType::Cancel);
         });
     }
-    let save_btn = Button::with_label(crate::i18n::t("save"));
+    let save_btn = Button::with_label(calendar::i18n::t("save"));
     save_btn.add_css_class("suggested-action");
     {
         let dialog = dialog.clone();
@@ -183,7 +183,7 @@ pub fn run_appointment_dialog(
     }
     // If editing, add a delete button on the left of the action row.
     if let Some(on_delete) = on_delete {
-        let del_btn = Button::with_label(crate::i18n::t("delete"));
+        let del_btn = Button::with_label(calendar::i18n::t("delete"));
         del_btn.add_css_class("delete-button");
         let on_result = on_result.clone();
         let on_delete = std::rc::Rc::new(on_delete);
@@ -196,11 +196,11 @@ pub fn run_appointment_dialog(
                 gtk::DialogFlags::MODAL,
                 gtk::MessageType::Warning,
                 ButtonsType::None,
-                crate::i18n::t("confirm_delete_title"),
+                calendar::i18n::t("confirm_delete_title"),
             );
-            confirm.set_secondary_text(Some(crate::i18n::t("confirm_delete_body")));
-            confirm.add_button(crate::i18n::t("cancel"), ResponseType::Cancel);
-            let del_resp = confirm.add_button(crate::i18n::t("delete"), ResponseType::Accept);
+            confirm.set_secondary_text(Some(calendar::i18n::t("confirm_delete_body")));
+            confirm.add_button(calendar::i18n::t("cancel"), ResponseType::Cancel);
+            let del_resp = confirm.add_button(calendar::i18n::t("delete"), ResponseType::Accept);
             del_resp.add_css_class("delete-button");
             confirm.set_default_response(ResponseType::Cancel);
             let dialog = dialog.clone();
@@ -312,14 +312,14 @@ fn build_appointment(
 ) -> Result<Appointment, String> {
     let title_text = f.title.text().to_string();
     if title_text.trim().is_empty() {
-        return Err(crate::i18n::t("title_required").to_string());
+        return Err(calendar::i18n::t("title_required").to_string());
     }
     let dt = f.cal.date();
     let y = dt.year();
     let m = dt.month() as u32;
     let d = dt.day_of_month() as u32;
     let date = NaiveDate::from_ymd_opt(y, m, d)
-        .ok_or_else(|| crate::i18n::t("invalid_date").to_string())?;
+        .ok_or_else(|| calendar::i18n::t("invalid_date").to_string())?;
 
     let all = f.all_day.is_active();
     let (sh_v, sm_v, eh_v, em_v) = if all {
@@ -334,7 +334,7 @@ fn build_appointment(
     };
 
     if sh_v > 23 || sm_v > 59 || eh_v > 23 || em_v > 59 {
-        return Err(crate::i18n::t("time_out_of_range").to_string());
+        return Err(calendar::i18n::t("time_out_of_range").to_string());
     }
 
     let start = make_datetime(date, sh_v, sm_v);

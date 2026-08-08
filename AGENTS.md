@@ -6,52 +6,71 @@ Guide for AI agents working on the **ShadowDate** app.
 
 A native **Rust + GTK4** desktop calendar for Linux (Wayland / Hyprland) with a gothic,
 dark-pastel look. Month-view grid, appointment create/edit/delete form, multilingual
-UI, and **iCalendar (.ics)** import/export. Appointments are stored as a single `.ics`
-file, which is also the on-disk format and the export format (so save == write ics).
+UI, **iCalendar (.ics)** import/export, and a background **reminder service**
+(systemd-user daemon firing desktop notifications). Appointments are stored as a
+single `.ics` file, which is also the on-disk format and the export format (so
+save == write ics).
 
 Previously known as "calendar"; the app was renamed to **ShadowDate** (binary
-`shadowdate`, package id `0xravenblack.shadowdata`).
+`shadowdate`, package id `0xravenblack.shadowdata`). The reminder daemon is the
+binary `shadowdate-service`, installed as the systemd user unit
+`shadowdate-service.service`.
 
 ## Layout
 
 ```
-Cargo.toml              # [[bin]] shadowdate + [lib] calendar; deps: gtk4 (0.11), ical, chrono, chrono-tz, uuid, anyhow, resvg
+Cargo.toml              # [[bin]] shadowdate + [[bin]] shadowdate-service + [lib] calendar;
+                        # deps: gtk4 (0.11), glib/gio (0.22), ical, chrono, chrono-tz, uuid,
+                        # anyhow, resvg, serde (derive), toml
 src/
-  lib.rs                # pub mod model; pub mod io_ics;  (library target for tests)
+  lib.rs                # pub mod model; pub mod io_ics; pub mod i18n; pub mod paths; pub mod service
   main.rs               # app bootstrap, window, headerbar, file choosers
   model.rs              # Appointment struct + in-memory Store (keyed by UID)
-  io_ics.rs             # parse/serialize .ics, import/export, load/save, merge
+  io_ics.rs             # parse/serialize .ics, import/export, load/save, merge, write_atomic
   calendar_view.rs      # month grid (dots + keyboard nav), day list, background portrait
   form_dialog.rs        # create/edit/delete appointment dialog (620x520, non-resizable, fits the window); Cancel/Save live in the form (right-aligned), time uses a SpinButton grid, Delete asks for confirmation
-  i18n.rs               # translations (EN/DE/FR/ES/ZH/JA/PL), date + weekday formatting
+  service_settings.rs   # ⚙️ reminders config dialog (lead time, all-day time, service start/stop/test)
+  i18n.rs               # translations (EN/DE/FR/ES/ZH/JA/PL), date + weekday formatting (in the lib)
   images.rs             # embedded logo + portrait (include_bytes!), decoded to gdk::Texture
-  calendar_view.rs / form_dialog.rs / i18n.rs / images.rs use `calendar::model` (the lib crate)
+  paths.rs              # XDG data/config path helpers (data_path, config_path)
+  service.rs            # ServiceConfig (toml), reminder_time, pending_reminders, notify, fired_key
+  bin/
+    shadowdate-service.rs # headless daemon: owns a D-Bus name, polls .ics + config, notifies
+  main.rs / calendar_view.rs / form_dialog.rs / service_settings.rs use `calendar::i18n`
+  and the rest of the lib crate via `calendar::*`
 tests/
   ics.rs                # integration tests: ics round-trip, RRULE expansion, TZID,
                         # escaping, series delete (calendar_view has grid unit tests)
+  service.rs            # unit tests for reminder_time / pending_reminders / config (no D-Bus)
 resources/
   style.css             # dark pastel theme (loaded at runtime via CssProvider)
   0xravenblack.shadowdata.desktop  # desktop entry (also installed by PKGBUILD)
+  shadowdate-service.service       # systemd user unit for the reminder daemon (also in PKGBUILD)
   svg/
     logo.svg              # vector app logo (embedded; shown at 30px, rasterized at 64px)
     face.svg              # vector background portrait, shown translucently behind the grid
   img/
     screenshot.jpg        # used by README only
-PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ local .desktop/svg icon/license)
+PKGBUILD / .SRCINFO     # AUR package: installs both prebuilt release binaries
+                        # (+ local .desktop/svg icon/systemd unit/license)
 0xravenblack.shadowdata.desktop / LICENSE  # local copies shipped next to the PKGBUILD
 ```
 
 ## Build & run
 
-- Build: `cargo build` (debug) or `cargo build --release`
+- Build: `cargo build` (debug) or `cargo build --release` (builds both binaries)
 - Run: `./target/release/shadowdate`
-- Test: `cargo test` (ics round-trip + load tests)
-- Lint/typecheck: `cargo clippy` (clean; no warnings expected)
+- Reminder daemon: `./target/release/shadowdate-service` (or `systemctl --user
+  enable --now shadowdate-service` after installing the unit)
+- Test: `cargo test` (ics round-trip + load tests + service scheduling tests)
+- Lint/typecheck: `cargo clippy --all-targets` (clean; no warnings expected)
 - AUR build: `makepkg` — downloads only the prebuilt `shadowdate-<pkgver>-x86_64-linux`
-  binary from the GitHub release (the desktop entry, icon, and license ship as local
-  files next to the PKGBUILD); no compilation, no source download. NOTE: do not run
-  `makepkg` inside the repo itself (its `src/` dir collides with the tracked source);
-  copy the repo or set a separate `BUILDDIR`.
+  and `shadowdate-service-<pkgver>-x86_64-linux` binaries from the GitHub release
+  (the desktop entry, icon, systemd unit, and license ship as local files next to
+  the PKGBUILD); no compilation, no source download. NOTE: do not run `makepkg`
+  inside the repo itself (its `src/` dir collides with the tracked source — and
+  `src/` is NOT gitignored, so a stray build dir shows up in `git status`); copy
+  the repo or set a separate `BUILDDIR`.
 
 ## Key architecture decisions
 
@@ -117,6 +136,30 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ l
   `std::env::temp_dir()`). The Export dialog defaults to `shadowdate.ics`. Editing or
   deleting an occurrence acts on the **whole series** (`series_uid`); editing replaces
   the series with the single submitted (now non-recurring) appointment.
+- **Reminder service**: `src/service.rs` holds the pure scheduling logic
+  (`ServiceConfig` + serde/toml, `reminder_time`, `pending_reminders`,
+  `prune_fired`, `fired_key`) and the D-Bus plumbing (`notification_proxy`,
+  `notify` via the freedesktop Notification Protocol on the session bus).
+  `pending_reminders` is a **pure function** (no I/O) so the dedupe / due-window
+  rules are unit-tested in `tests/service.rs` without a daemon. The store is
+  fully RRULE-expanded, so scheduling is straight off `Store`. Rules: timed
+  events are reminded `lead_min` minutes before `start`, but **never after the
+  event ends** (a reminder missed while the daemon slept still fires for an
+  ongoing event); all-day events fire **once**, at `all_day_hour:all_day_minute`
+  on their **start date only** (multi-day all-day events are announced exactly
+  once); results are sorted by start. Dedupe keys are `uid@<reminder_ts>`, so
+  editing an event (same UID, new time) re-fires; keys are pruned after 6h.
+  The daemon (`src/bin/shadowdate-service.rs`) is headless (no GTK widgets), owns
+  the session name `org.ravenblack.ShadowDate.Service` with `DO_NOT_QUEUE` (a
+  second instance exits), and **polls** the `.ics` file + config every 1s via
+  `SystemTime` mtimes — an mtime change reloads the store/config, keeping the
+  last good one on parse errors. The app saves the `.ics` **atomically**
+  (`write_atomic`: temp file + rename) so the daemon never reads a torn file.
+  Config lives at `$XDG_CONFIG_HOME/shadowdate/service.toml` (`paths::config_path`).
+  The app's ⚙️ **Settings** dialog (`service_settings.rs`) edits the config, tests
+  notifications, and starts/stops the systemd user unit `shadowdate-service`
+  (`systemctl --user enable/disable --now`), detecting running state via
+  D-Bus `NameHasOwner`.
 - **GTK4 dialogs are async**: `Dialog::run()` does not exist in gtk4 0.11; use
   `run_async` / `connect_response`. The appointment form delivers its result via a
   `  Box<dyn Fn(Option<Appointment>)>` callback (never blocks). On validation error the
@@ -145,7 +188,9 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ l
 - The `calendar` crate is both a **bin** and a **lib**; `main.rs` uses `calendar::*`
   while `calendar_view.rs` / `form_dialog.rs` / `i18n.rs` / `images.rs` use
   `calendar::model`. The binary name is `shadowdate`; do not rename the lib crate
-  without updating those paths.
+  without updating those paths. `i18n`, `paths`, and `service` live **in the lib**
+  (not in `main.rs`) so the headless `shadowdate-service` bin can use them without
+  pulling in GTK.
 - Embedded images: add new art via `include_bytes!` in `images.rs` and rasterize the
   SVG with `resvg` (bundles `usvg` + `tiny-skia`, pure Rust, no system deps) into a
   `tiny_skia::Pixmap`, then upload it as a `gdk::MemoryTexture` (the gdk4 `from_bytes`
@@ -173,7 +218,10 @@ PKGBUILD / .SRCINFO     # AUR package: installs the prebuilt release binary (+ l
 - Change window size/float behavior: edit `main.rs` (`set_default_size`) and the
   Hyprland `windowrule`s in `~/.config/hypr/hyprland.conf`, then `hyprctl reload`.
 - Release / package: publish a GitHub release **tagged `v<pkgver>`** with the
-  `shadowdate-<pkgver>-x86_64-linux` binary uploaded as a release asset (the AUR
-  package installs this binary directly). Then bump `pkgver` in `PKGBUILD`,
-  update the binary's `sha256sums` (`makepkg -g` regenerates it), rebuild
-  `.SRCINFO` (`makepkg --printsrcinfo > .SRCINFO`), and commit.
+  `shadowdate-<pkgver>-x86_64-linux` and `shadowdate-service-<pkgver>-x86_64-linux`
+  binaries uploaded as release assets (the AUR package installs these directly).
+  Then bump `pkgver` in `PKGBUILD`, update the binaries' `sha256sums`
+  (`makepkg -g` regenerates them), rebuild `.SRCINFO`
+  (`makepkg --printsrcinfo > .SRCINFO`), and commit.
+- Add a reminder setting: update `Reminders` in `service.rs` (serde fields), the
+  UI in `service_settings.rs`, and the `tests/service.rs` config round-trip test.

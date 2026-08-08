@@ -1,10 +1,13 @@
 mod calendar_view;
 mod form_dialog;
-mod i18n;
 mod images;
+mod service_settings;
 
+use calendar::i18n;
 use calendar::io_ics;
 use calendar::model::Appointment;
+use calendar::paths;
+use calendar::service::APP_ID;
 use calendar_view::CalendarView;
 use form_dialog::run_appointment_dialog;
 use gtk::prelude::*;
@@ -12,30 +15,7 @@ use gtk::{
     Application, ApplicationWindow, Button, FileChooserAction, FileChooserDialog, HeaderBar,
 };
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
-
-const APP_ID: &str = "0xravenblack.shadowdata";
-
-fn data_path() -> PathBuf {
-    let mut p = dirs_data().unwrap_or_else(std::env::temp_dir);
-    p.push("calendar");
-    p.push("calendar.ics");
-    p
-}
-
-fn dirs_data() -> Option<PathBuf> {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| {
-                let mut p = PathBuf::from(h);
-                p.push(".local");
-                p.push("share");
-                p
-            })
-        })
-}
 
 fn main() -> gtk::glib::ExitCode {
     let app = Application::builder().application_id(APP_ID).build();
@@ -70,7 +50,7 @@ fn header_button(label: &str, icon: &str) -> Button {
 }
 
 fn build_ui(app: &Application) {
-    let path = data_path();
+    let path = paths::data_path();
     let store = Rc::new(RefCell::new(io_ics::load_store(&path)));
     let window = ApplicationWindow::builder()
         .application(app)
@@ -186,6 +166,7 @@ fn build_ui(app: &Application) {
     let new_btn = cv.new_btn.clone();
     let import_btn = header_button(i18n::t("import"), "document-open-symbolic");
     let export_btn = header_button(i18n::t("export"), "document-save-symbolic");
+    let settings_btn = header_button(i18n::t("settings"), "emblem-system-symbolic");
     let exit_btn = header_button(i18n::t("exit"), "application-exit-symbolic");
     exit_btn.add_css_class("exit-button");
     exit_btn.connect_clicked({
@@ -195,8 +176,14 @@ fn build_ui(app: &Application) {
     actions.append(&new_btn);
     actions.append(&import_btn);
     actions.append(&export_btn);
+    actions.append(&settings_btn);
     actions.append(&exit_btn);
     header.pack_end(&actions);
+
+    settings_btn.connect_clicked({
+        let window = window.clone();
+        move |_| service_settings::run_service_settings(&window)
+    });
 
     window.set_titlebar(Some(&header));
     window.set_child(Some(&cv.widget));

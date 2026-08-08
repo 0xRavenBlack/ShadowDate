@@ -1,0 +1,248 @@
+//! Reminder scheduling + config shared by the `shadowdate` app and the
+//! `shadowdate-service` notification daemon.
+//!
+//! The on-disk `.ics` store is fully RRULE-expanded (every occurrence is its own
+//! `VEVENT`), so the daemon schedules reminders straight off the imported
+//! `Store` with no recurrence logic. Timed events are reminded `lead_min`
+//! minutes before `start`; all-day events are reminded once, at
+//! `all_day_hour:all_day_minute` on their start date.
+//!
+//! `pending_reminders` is a pure function (no I/O) so the dedupe / due-window
+//! rules are unit-testable without a D-Bus daemon.
+
+use crate::model::{Appointment, Store};
+use anyhow::{anyhow, Context, Result};
+use chrono::{DateTime, Local, TimeDelta};
+use gio::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+
+/// Application id, also the themed icon name and the D-Bus notification
+/// `desktop-entry` hint.
+pub const APP_ID: &str = "0xravenblack.shadowdata";
+
+/// Session-bus well-known name that guards against a second service instance.
+pub const SERVICE_NAME: &str = "org.ravenblack.ShadowDate.Service";
+
+/// Freedesktop notification protocol bus.
+const NOTIFY_IFACE: &str = "org.freedesktop.Notifications";
+const NOTIFY_PATH: &str = "/org/freedesktop/Notifications";
+
+/// How long a fired reminder stays in the dedupe set before being pruned.
+const FIRED_RETENTION: TimeDelta = TimeDelta::hours(6);
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ServiceConfig {
+    #[serde(default)]
+    pub reminders: Reminders,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reminders {
+    /// Minutes before a timed event's start at which its reminder fires.
+    pub lead_min: u32,
+    /// Wall-clock time at which all-day events are reminded (on their start date).
+    pub all_day_hour: u32,
+    pub all_day_minute: u32,
+}
+
+impl Default for Reminders {
+    fn default() -> Self {
+        Self {
+            lead_min: 10,
+            all_day_hour: 9,
+            all_day_minute: 0,
+        }
+    }
+}
+
+impl ServiceConfig {
+    /// Load the config from `path`. A missing or unreadable file yields the
+    /// defaults; an unparseable file yields the defaults plus a warning.
+    pub fn load(path: &Path) -> ServiceConfig {
+        if path.as_os_str().is_empty() || !path.exists() {
+            return ServiceConfig::default();
+        }
+        match fs::read_to_string(path) {
+            Ok(content) => match toml::from_str::<ServiceConfig>(&content) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    eprintln!(
+                        "warning: invalid service config {} ({}); using defaults",
+                        path.display(),
+                        e
+                    );
+                    ServiceConfig::default()
+                }
+            },
+            Err(e) => {
+                eprintln!(
+                    "warning: reading service config {}: {}; using defaults",
+                    path.display(),
+                    e
+                );
+                ServiceConfig::default()
+            }
+        }
+    }
+
+    /// Write the config to `path` (atomically, like the `.ics` store).
+    pub fn save(&self, path: &Path) -> Result<()> {
+        let data = toml::to_string(self).context("serializing service config")?;
+        crate::io_ics::write_atomic(path, &data)
+    }
+}
+
+/// When an appointment's reminder should fire. Timed events are reminded
+/// `lead_min` minutes early; all-day events at the configured morning time on
+/// the start date.
+pub fn reminder_time(appt: &Appointment, cfg: &ServiceConfig) -> DateTime<Local> {
+    if appt.all_day {
+        crate::model::make_datetime(appt.date(), cfg.reminders.all_day_hour, cfg.reminders.all_day_minute)
+    } else {
+        appt.start - TimeDelta::minutes(cfg.reminders.lead_min as i64)
+    }
+}
+
+/// Dedupe key for a fired reminder. Includes the reminder instant so editing an
+/// appointment (same UID, new time) produces a fresh notification.
+fn fired_key(appt: &Appointment, rt: &DateTime<Local>) -> String {
+    format!("{}@{}", appt.uid, rt.timestamp())
+}
+
+/// Appointments whose reminder is due `now` and has not fired yet.
+///
+/// A reminder is due when its `reminder_time` is in the past but the event has
+/// not ended (so a reminder missed while the daemon slept still shows up for an
+/// ongoing event). All-day events only fire on their start date, so a multi-day
+/// all-day event is announced exactly once. Results are ordered by start time.
+pub fn pending_reminders<'a>(
+    store: &'a Store,
+    cfg: &ServiceConfig,
+    now: DateTime<Local>,
+    fired: &HashSet<String>,
+) -> Vec<(String, &'a Appointment)> {
+    let mut pending: Vec<(String, &'a Appointment)> = Vec::new();
+    for appt in &store.items {
+        if appt.end <= now {
+            continue;
+        }
+        if appt.all_day && appt.date() != now.date_naive() {
+            continue;
+        }
+        let rt = reminder_time(appt, cfg);
+        if rt > now {
+            continue;
+        }
+        let key = fired_key(appt, &rt);
+        if !fired.contains(&key) {
+            pending.push((key, appt));
+        }
+    }
+    pending.sort_by_key(|(_, a)| a.start);
+    pending
+}
+
+/// Drop fired keys older than `FIRED_RETENTION` to bound memory on long runs.
+pub fn prune_fired(fired: &mut HashSet<String>, now: DateTime<Local>) {
+    let cutoff = (now - FIRED_RETENTION).timestamp();
+    fired.retain(|k| match k.rfind('@') {
+        Some(i) => k[i + 1..].parse::<i64>().map(|ts| ts >= cutoff).unwrap_or(true),
+        None => true,
+    });
+}
+
+/// Connect a proxy to the session notification daemon.
+pub fn notification_proxy() -> Result<gio::DBusProxy> {
+    let conn = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>)
+        .map_err(|e| anyhow!("connecting to session bus: {}", e))?;
+    gio::DBusProxy::new_sync(
+        &conn,
+        gio::DBusProxyFlags::NONE,
+        None,
+        Some(NOTIFY_IFACE),
+        NOTIFY_PATH,
+        NOTIFY_IFACE,
+        None::<&gio::Cancellable>,
+    )
+    .map_err(|e| anyhow!("creating notification proxy: {}", e))
+}
+
+/// Build the `Notify` method-call argument tuple `(susssasa{sv}i)`.
+///
+/// The tuple is assembled with `Variant::tuple_from_iter` so each child keeps
+/// its own type — in particular the hints `a{sv}` must stay `a{sv}`. A plain
+/// Rust tuple passed through `.to_variant()` would box the hints into a `v`,
+/// which notification daemons reject with `InvalidArgs`.
+fn notify_args(summary: &str, body: &str, icon: &str) -> glib::Variant {
+    let hints = glib::VariantDict::new(None);
+    hints.insert_value("urgency", &glib::Variant::from(1u32));
+    hints.insert_value("category", &glib::Variant::from("reminder"));
+    hints.insert_value("desktop-entry", &glib::Variant::from(APP_ID));
+    glib::Variant::tuple_from_iter([
+        "ShadowDate".to_variant(),       // app_name
+        0u32.to_variant(),               // replaces_id: never replace
+        icon.to_variant(),               // app_icon
+        summary.to_variant(),            // summary
+        body.to_variant(),               // body
+        Vec::<&str>::new().to_variant(), // actions (none)
+        hints.end(),                     // hints: a{sv}
+        (-1i32).to_variant(),            // expire_timeout: server default
+    ])
+}
+
+/// Send a desktop notification through the freedesktop Notification Protocol.
+/// Returns the daemon-assigned notification id.
+pub fn notify(
+    proxy: &gio::DBusProxy,
+    summary: &str,
+    body: &str,
+    icon: &str,
+) -> Result<u32> {
+    let args = notify_args(summary, body, icon);
+    let reply = proxy.call_sync(
+        "Notify",
+        Some(&args),
+        gio::DBusCallFlags::NONE,
+        -1,
+        None::<&gio::Cancellable>,
+    )?;
+    let (id,) = reply.get::<(u32,)>().unwrap_or((0,));
+    Ok(id)
+}
+
+/// Body text for an appointment reminder, localized through `i18n`.
+pub fn reminder_body(appt: &Appointment) -> String {
+    let all_day = crate::i18n::t("all_day");
+    if appt.all_day {
+        if appt.location.is_empty() {
+            all_day.to_string()
+        } else {
+            format!("{} · {}", all_day, appt.location)
+        }
+    } else {
+        let times = format!(
+            "{} – {}",
+            appt.start.format("%H:%M"),
+            appt.end.format("%H:%M")
+        );
+        if appt.location.is_empty() {
+            times
+        } else {
+            format!("{} · {}", times, appt.location)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notify_args_have_expected_signature() {
+        let args = notify_args("s", "b", "i");
+        assert_eq!(args.type_().as_str(), "(susssasa{sv}i)");
+    }
+}

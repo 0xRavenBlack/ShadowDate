@@ -50,6 +50,7 @@ you share. 💜
 | 🖼️ **Fancy backdrop** | A translucent portrait sits softly behind the grid |
 | ⌨️ **Keyboard-first** | Arrow keys move between days, Enter creates an appointment |
 | 🌍 **Multilingual** | 🇬🇧 🇩🇪 🇫🇷 🇪🇸 🇨🇳 🇯🇵 🇵🇱 — follows your system locale |
+| 🔔 **Reminders** | Headless systemd-user daemon fires desktop notifications |
 
 ---
 
@@ -111,6 +112,30 @@ update-desktop-database ~/.local/share/applications
 gtk-update-icon-cache -f ~/.local/share/icons/hicolor
 ```
 
+### 🔔 Reminders (background service)
+
+A tiny headless daemon (`shadowdate-service`) watches the `.ics` store and your
+reminder settings, and pops a desktop notification when an appointment is due.
+Timed events are announced a few minutes early; all-day events are announced
+once, at the morning time you choose.
+
+```bash
+# Build both binaries
+cargo build --release
+
+# Install the daemon
+cp target/release/shadowdate-service ~/.local/bin/
+
+# Start it now and on every login
+systemctl --user enable --now shadowdate-service
+
+# ...or manage it from the app: ⚙️ Settings → service section
+```
+
+Configure timing in the app (**⚙️ Settings**): the lead time for timed events and
+the morning time for all-day events. The daemon reloads
+`~/.config/shadowdate/service.toml` live — no restart needed.
+
 ---
 
 ## 🪟 Hyprland (floating window)
@@ -131,19 +156,27 @@ Then reload: `hyprctl reload` 🔄
 
 ```
 shadowdate/
-├── 📦 Cargo.toml          # bin: shadowdate · lib: calendar
+├── 📦 Cargo.toml          # bins: shadowdate + shadowdate-service · lib: calendar
 ├── 🗂️  src/
 │   ├── main.rs            # app bootstrap, window, headerbar
 │   ├── model.rs           # Appointment + Store
 │   ├── io_ics.rs          # .ics parse / serialize / import / export
 │   ├── calendar_view.rs   # month grid + day list
 │   ├── form_dialog.rs     # create / edit / delete dialog
+│   ├── service_settings.rs # ⚙️ reminders config dialog
 │   ├── i18n.rs            # 🌍 translations
-│   └── images.rs          # embedded logo & portrait
+│   ├── images.rs          # embedded logo & portrait
+│   ├── paths.rs           # XDG data / config paths
+│   ├── service.rs         # reminder scheduling + notification (shared)
+│   └── bin/
+│       └── shadowdate-service.rs  # 🔔 headless reminder daemon
 ├── 🎨 resources/
 │   ├── style.css          # dark pastel theme
+│   ├── shadowdate-service.service  # systemd user unit
 │   └── img/               # logo, portrait, screenshot
-└── 🧪 tests/ics.rs
+└── 🧪 tests/
+    ├── ics.rs
+    └── service.rs
 ```
 
 ---
@@ -155,6 +188,13 @@ Appointments live in a single iCalendar file:
 ```
 $XDG_DATA_HOME/calendar/calendar.ics
 # fallback: ~/.local/share/calendar/calendar.ics
+```
+
+Reminder settings live in:
+
+```
+$XDG_CONFIG_HOME/shadowdate/service.toml
+# fallback: ~/.config/shadowdate/service.toml
 ```
 
 ---

@@ -121,14 +121,14 @@ impl CalendarView {
 
         let prev_btn = Button::with_label("‹");
         prev_btn.add_css_class("nav-button");
-        prev_btn.set_tooltip_text(Some(crate::i18n::t("prev_month")));
+        prev_btn.set_tooltip_text(Some(calendar::i18n::t("prev_month")));
         let next_btn = Button::with_label("›");
         next_btn.add_css_class("nav-button");
-        next_btn.set_tooltip_text(Some(crate::i18n::t("next_month")));
-        let today_btn = Button::with_label(crate::i18n::t("today"));
-        today_btn.set_tooltip_text(Some(crate::i18n::t("today")));
-        let new_btn = Button::with_label(crate::i18n::t("new"));
-        new_btn.set_tooltip_text(Some(crate::i18n::t("new")));
+        next_btn.set_tooltip_text(Some(calendar::i18n::t("next_month")));
+        let today_btn = Button::with_label(calendar::i18n::t("today"));
+        today_btn.set_tooltip_text(Some(calendar::i18n::t("today")));
+        let new_btn = Button::with_label(calendar::i18n::t("new"));
+        new_btn.set_tooltip_text(Some(calendar::i18n::t("new")));
         new_btn.add_css_class("new-button");
 
         let view = Self {
@@ -343,10 +343,10 @@ fn render_month(
         let s = state.borrow();
         (s.view_year, s.view_month, s.selected)
     };
-    let month_name = crate::i18n::format_month_year(view_year, (view_month - 1) as usize);
+    let month_name = calendar::i18n::format_month_year(view_year, (view_month - 1) as usize);
     month_label.set_text(&month_name);
 
-    let weekdays = crate::i18n::weekday_abbrevs();
+    let weekdays = calendar::i18n::weekday_abbrevs();
     for (i, wd) in weekdays.iter().enumerate() {
         let l = Label::new(Some(wd));
         l.add_css_class("weekday-header");
@@ -423,7 +423,7 @@ fn render_day(
         list_box.remove(&child);
     }
     let s = state.borrow();
-    day_label.set_text(&crate::i18n::format_date(s.selected));
+    day_label.set_text(&calendar::i18n::format_date(s.selected));
     let appts: Vec<Appointment> = store.borrow().on_date(s.selected).into_iter().cloned().collect();
     for a in &appts {
         let row = build_appt_row(a);
@@ -449,11 +449,11 @@ fn render_day(
         let empty_box = Box::new(gtk::Orientation::Vertical, 6);
         empty_box.set_halign(gtk::Align::Center);
         empty_box.set_margin_top(16);
-        let empty = Label::new(Some(crate::i18n::t("no_appointments")));
+        let empty = Label::new(Some(calendar::i18n::t("no_appointments")));
         empty.add_css_class("empty-label");
         empty_box.append(&empty);
 
-        let add_btn = Button::with_label(crate::i18n::t("add_appointment"));
+        let add_btn = Button::with_label(calendar::i18n::t("add_appointment"));
         add_btn.add_css_class("empty-cta");
         let selected = s.selected;
         let on_new = on_new.clone();
@@ -527,7 +527,7 @@ fn build_cell(
             dot_row.append(&dot);
         }
         if appts.len() > 5 {
-            let more = Label::new(Some(&crate::i18n::more_compact(appts.len() - 5)));
+            let more = Label::new(Some(&calendar::i18n::more_compact(appts.len() - 5)));
             more.add_css_class("dot-count");
             dot_row.append(&more);
         }
@@ -538,7 +538,7 @@ fn build_cell(
         let detail: Vec<String> = appts
             .iter()
             .map(|a| {
-                let mut s = format!("• {}  {}", a.time_label(crate::i18n::t("all_day_short")), a.title);
+                let mut s = format!("• {}  {}", a.time_label(calendar::i18n::t("all_day_short")), a.title);
                 if !a.location.is_empty() {
                     s.push_str(&format!("  @ {}", a.location));
                 }
@@ -569,12 +569,12 @@ fn build_appt_row(a: &Appointment) -> Box {
     title.set_max_width_chars(32);
     row.append(&title);
     if a.all_day {
-        let tag = Label::new(Some(crate::i18n::t("all_day_short")));
+        let tag = Label::new(Some(calendar::i18n::t("all_day_short")));
         tag.add_css_class("all-day-tag");
         tag.set_xalign(0.0);
         row.append(&tag);
     }
-    let meta = Label::new(Some(&format!("{}   {}", a.time_label(crate::i18n::t("all_day_short")), a.location)));
+    let meta = Label::new(Some(&format!("{}   {}", a.time_label(calendar::i18n::t("all_day_short")), a.location)));
     meta.add_css_class("appt-meta");
     meta.set_xalign(0.0);
     meta.set_ellipsize(gtk::pango::EllipsizeMode::End);

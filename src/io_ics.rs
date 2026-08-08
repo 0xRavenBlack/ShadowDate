@@ -684,6 +684,20 @@ pub fn export_ics(store: &Store, path: &Path, prodid: &str) -> Result<()> {
     Ok(())
 }
 
+/// Write `data` to `path` atomically: write to a temp file in the same
+/// directory, then rename over the target. A concurrent reader (like the
+/// background `shadowdate-service`) can never observe a partially-written file.
+pub fn write_atomic(path: &Path, data: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).ok();
+    }
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, data).with_context(|| format!("writing {}", tmp.display()))?;
+    fs::rename(&tmp, path)
+        .with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()))?;
+    Ok(())
+}
+
 /// Load the persistent store from the default data file, if it exists.
 pub fn load_store(path: &Path) -> Store {
     if path.exists() {
@@ -693,12 +707,11 @@ pub fn load_store(path: &Path) -> Store {
     }
 }
 
-/// Save the store to the default data file (also the export format).
+/// Save the store to the default data file (also the export format). Written
+/// atomically so a concurrently-reading reminder daemon never sees a torn file.
 pub fn save_store(store: &Store, path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).ok();
-    }
-    export_ics(store, path, "-//ravenblack//calendar//EN")
+    let data = store_to_ics(store, "-//ravenblack//calendar//EN");
+    write_atomic(path, &data)
 }
 
 /// Merge another store into this one. For each series present in `other`

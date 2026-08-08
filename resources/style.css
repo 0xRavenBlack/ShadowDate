@@ -305,6 +305,12 @@ button.exit-button:hover {
     font-weight: 600;
 }
 
+.service-status {
+    font-size: 14px;
+    font-weight: 700;
+    color: #a7c7e7;
+}
+
 .time-box {
     margin-top: 6px;
 }
