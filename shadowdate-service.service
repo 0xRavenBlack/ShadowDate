@@ -1,0 +1,11 @@
+[Unit]
+Description=ShadowDate reminder service
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/shadowdate-service
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -53,7 +53,11 @@ resources/
     screenshot.jpg        # used by README only
 PKGBUILD / .SRCINFO     # AUR package: installs both prebuilt release binaries
                         # (+ local .desktop/svg icon/systemd unit/license)
-0xravenblack.shadowdata.desktop / LICENSE  # local copies shipped next to the PKGBUILD
+0xravenblack.shadowdata.desktop / logo.svg / shadowdate-service.service / LICENSE
+                        # local copies shipped next to the PKGBUILD; makepkg
+                        # resolves local sources by basename in the build dir, so
+                        # these live flat at the repo root (desktop + LICENSE
+                        # duplicate resources/, logo.svg mirrors resources/svg/)
 ```
 
 ## Build & run

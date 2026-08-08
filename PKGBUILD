@@ -9,17 +9,17 @@ url="https://github.com/0xRavenBlack/ShadowDate"
 options=('!debug')
 license=('MIT')
 depends=('gtk4' 'glib2')
-# TODO: regenerate sha256sums with `makepkg -g` after uploading the v0.5.0
-# release assets (shadowdate + shadowdate-service binaries). The placeholder
-# sums below are the sha256 of the empty string.
+# Local sources ship flat next to the PKGBUILD (makepkg resolves local sources
+# by basename in the build directory), mirroring 0xravenblack.shadowdata.desktop
+# and LICENSE at the repo root.
 source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/download/v${pkgver}/shadowdate-${pkgver}-x86_64-linux"
         "${pkgname}-service::https://github.com/0xRavenBlack/ShadowDate/releases/download/v${pkgver}/shadowdate-service-${pkgver}-x86_64-linux"
         "0xravenblack.shadowdata.desktop"
-        "resources/svg/logo.svg"
-        "resources/shadowdate-service.service"
+        "logo.svg"
+        "shadowdate-service.service"
         "LICENSE")
-sha256sums=('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-            'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+sha256sums=('20a3758963b1cbd456c361907c95bd141e9f2b9f4ed6b46cb6a42242f9180f85'
+            '34718eab928ebdf561236df9346661413d8eb1064d3c387f1116c2e032cf2bfc'
             'SKIP'
             'SKIP'
             'SKIP'
@@ -37,11 +37,11 @@ package() {
         "${pkgdir}/usr/share/applications/${_appid}.desktop"
 
     # Icon (logo.svg is a vector SVG; installed as the scalable themed icon)
-    install -Dm644 "resources/svg/logo.svg" \
+    install -Dm644 "logo.svg" \
         "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${_appid}.svg"
 
     # Systemd user unit for the background reminder service
-    install -Dm644 "resources/shadowdate-service.service" \
+    install -Dm644 "shadowdate-service.service" \
         "${pkgdir}/usr/lib/systemd/user/shadowdate-service.service"
 
     # License
