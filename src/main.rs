@@ -18,15 +18,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 fn main() -> gtk::glib::ExitCode {
+    bail_if_already_running();
     let app = Application::builder().application_id(APP_ID).build();
     app.connect_startup(|_| {
         load_css();
         gtk::Window::set_default_icon_name(APP_ID);
     });
-    // Single instance: gio::Application registers `APP_ID` on the session bus,
-    // so a second launch activates the running instance instead of starting a
-    // new process. Re-activation must only present the existing window, never
-    // build another one.
+    // Single instance: a `/proc` pre-check above quits a second process before
+    // GTK is even up. Note that `APP_ID` starts with a digit, so it is not a
+    // valid GApplication id and the session-bus registration never engages —
+    // the pre-check is the app's only guard against a second window.
     app.connect_activate(|app| {
         if app.windows().is_empty() {
             build_ui(app);
@@ -35,6 +36,70 @@ fn main() -> gtk::glib::ExitCode {
         }
     });
     app.run()
+}
+
+/// Quit before GTK starts if another `shadowdate` process is already running.
+///
+/// `APP_ID` begins with a digit, so it is not a valid GApplication id and the
+/// `gtk::Application` in `main` never registers on the session bus — this
+/// `/proc` pre-check is the app's only single-instance guard. The second
+/// process exits right away, before any window or GTK work happens.
+fn bail_if_already_running() {
+    if another_instance_running() {
+        eprintln!("shadowdate: another instance is already running; quitting");
+        std::process::exit(0);
+    }
+}
+
+/// True when a `shadowdate` process owned by this user is already alive.
+///
+/// Scans `/proc` for a process whose `comm` is exactly `shadowdate` (the
+/// `shadowdate-service` daemon's comm never matches), limited to the caller's
+/// effective UID so a second user's instance — with its own data dir — does
+/// not block this launch, and skipping zombies so a dead-but-unreaped process
+/// cannot brick startup.
+fn another_instance_running() -> bool {
+    let my_pid = std::process::id();
+    let my_uid = status_of(my_pid).map(|(uid, _)| uid);
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        if pid == my_pid {
+            continue;
+        }
+        let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
+            continue;
+        };
+        let Some((uid, state)) = status_of(pid) else {
+            continue;
+        };
+        if comm.trim() == "shadowdate" && my_uid == Some(uid) && state != 'Z' {
+            return true;
+        }
+    }
+    false
+}
+
+/// Effective UID and state char of `pid` from `/proc/<pid>/status`.
+fn status_of(pid: u32) -> Option<(u32, char)> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let mut uid = None;
+    let mut state = None;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("Uid:") {
+            uid = rest.split_whitespace().nth(1).and_then(|s| s.parse().ok());
+        } else if let Some(rest) = line.strip_prefix("State:") {
+            state = rest.split_whitespace().next().and_then(|s| s.chars().next());
+        }
+    }
+    match (uid, state) {
+        (Some(uid), Some(state)) => Some((uid, state)),
+        _ => None,
+    }
 }
 
 fn load_css() {

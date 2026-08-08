@@ -87,6 +87,15 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   `windowrule = size 1024 560, class:(0xravenblack.shadowdata)`.
 - **Close button**: default title-buttons hidden (`set_show_title_buttons(false)`);
   a textual **"Exit"** button (`.exit-button` dark red CSS) closes the window.
+- **Single instance**: `main()` first runs a `/proc` pre-check
+  (`bail_if_already_running`) that quits a second `shadowdate` process before GTK
+  starts — it scans `/proc/*/comm` for a `shadowdate` process owned by the same
+  effective UID, skipping zombies. This is the app's **only** single-instance
+  guard: `APP_ID` starts with a digit, so it is not a valid GApplication id and
+  the `gtk::Application`'s session-bus registration never engages (a second
+  process would otherwise build a second window). The `shadowdate-service`
+  daemon guards itself separately via its D-Bus name (`SERVICE_NAME`,
+  `DO_NOT_QUEUE`).
 - **Branding**: the `logo.svg` is embedded (`include_bytes!`, rasterized with `resvg`)
   and shown as a 30px rounded icon plus a "ShadowDate" title in the headerbar's left
   side (`.brand-box`).
