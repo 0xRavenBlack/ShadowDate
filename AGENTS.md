@@ -44,8 +44,6 @@ tests/
   service.rs            # unit tests for reminder_time / pending_reminders / config (no D-Bus)
 resources/
   style.css             # dark pastel theme (loaded at runtime via CssProvider)
-  0xravenblack.shadowdata.desktop  # desktop entry (also installed by PKGBUILD)
-  shadowdate-service.service       # systemd user unit for the reminder daemon (also in PKGBUILD)
   svg/
     logo.svg              # vector app logo (embedded; shown at 30px, rasterized at 64px)
     face.svg              # vector background portrait, shown translucently behind the grid
@@ -57,9 +55,9 @@ PKGBUILD / .SRCINFO     # AUR package: installs both prebuilt release binaries
 shadowdate.install / LICENSE
                         # local copies shipped next to the PKGBUILD; makepkg
                         # resolves local sources by basename in the build dir, so
-                        # these live flat at the repo root (desktop + LICENSE
-                        # duplicate resources/, logo.svg mirrors resources/svg/,
-                        # shadowdate-service.service mirrors resources/)
+                        # these live flat at the repo root (logo.svg mirrors
+                        # resources/svg/; the desktop entry + systemd unit exist
+                        # only at the root, LICENSE is the canonical license)
 ```
 
 ## Build & run

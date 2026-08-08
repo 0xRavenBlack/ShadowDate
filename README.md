@@ -105,7 +105,7 @@ cargo test
 cp target/release/shadowdate ~/.local/bin/
 
 # Desktop entry
-cp resources/0xravenblack.shadowdata.desktop ~/.local/share/applications/
+cp 0xravenblack.shadowdata.desktop ~/.local/share/applications/
 
 # Refresh caches
 update-desktop-database ~/.local/share/applications
@@ -172,8 +172,8 @@ shadowdate/
 │       └── shadowdate-service.rs  # 🔔 headless reminder daemon
 ├── 🎨 resources/
 │   ├── style.css          # dark pastel theme
-│   ├── shadowdate-service.service  # systemd user unit
-│   └── img/               # logo, portrait, screenshot
+│   ├── svg/               # logo + portrait (embedded into the binaries)
+│   └── img/               # screenshot (README only)
 └── 🧪 tests/
     ├── ics.rs
     └── service.rs
