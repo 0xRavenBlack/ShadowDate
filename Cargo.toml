@@ -1,6 +1,6 @@
 [package]
 name = "shadowdate"
-version = "0.6.5"
+version = "0.7.0"
 edition = "2024"
 description = "A gothic dark-pastel desktop calendar for Linux (Rust + GTK4) with iCalendar support and a background reminder service"
 license = "MIT"
