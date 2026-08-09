@@ -252,7 +252,6 @@ pub fn run_appointment_dialog(
     dialog.present();
 
     let existing_owned: Option<Appointment> = existing.cloned();
-    let res = dialog.clone();
     dialog.connect_response(move |d, response| {
         if response == ResponseType::Cancel {
             d.close();
@@ -283,7 +282,6 @@ pub fn run_appointment_dialog(
                 crate::ui::show_error(d, &msg);
             }
         }
-        let _ = res;
     });
 }
 
@@ -325,10 +323,6 @@ fn build_appointment(
             f.em.value_as_int() as u32,
         )
     };
-
-    if sh_v > 23 || sm_v > 59 || eh_v > 23 || em_v > 59 {
-        return Err(calendar::i18n::t("time_out_of_range").to_string());
-    }
 
     let start = make_datetime(date, sh_v, sm_v);
     let mut end = make_datetime(date, eh_v, em_v);

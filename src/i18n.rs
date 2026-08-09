@@ -164,15 +164,6 @@ pub fn t(key: &str) -> &'static str {
             "タイトルは必須です。",
             "Tytuł jest wymagany.",
         ),
-        "time_out_of_range" => (
-            "Time values out of range.",
-            "Zeitwerte außerhalb des gültigen Bereichs.",
-            "Valeurs horaires hors limites.",
-            "Valores de tiempo fuera de rango.",
-            "时间值超出范围。",
-            "時刻の値が範囲外です。",
-            "Wartości czasu poza zakresem.",
-        ),
         "invalid_date" => (
             "Invalid date.",
             "Ungültiges Datum.",
@@ -386,7 +377,10 @@ pub fn t(key: &str) -> &'static str {
             "カレンダーファイルを読み取れませんでした。バックアップは次に保存されました：",
             "Nie udało się odczytać pliku kalendarza. Kopia zapasowa została zapisana w:",
         ),
-        _ => ("???", "???", "???", "???", "???", "???", "???"),
+        _ => {
+            debug_assert!(false, "i18n: unknown translation key: {key}");
+            ("???", "???", "???", "???", "???", "???", "???")
+        }
     };
     match l {
         Lang::En => en,
