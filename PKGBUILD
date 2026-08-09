@@ -18,10 +18,10 @@ source=("${pkgname}::https://github.com/0xRavenBlack/ShadowDate/releases/downloa
         "logo.svg::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/resources/svg/logo.svg"
         "shadowdate-service.service::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/shadowdate-service.service"
         "LICENSE::https://raw.githubusercontent.com/0xRavenBlack/ShadowDate/v${pkgver}/LICENSE")
-sha256sums=('713b90f04bf356498e19d1f5f4065eb6947dac51142f81606c277faf1af15c97'
-            '793d50d2f415159868f0864a3df347c7da6ee7de2e7b5eea2d368a8e253da3b5'
+sha256sums=('cee8183162b58a21e923a61279f37820396a7ab3eb3152be802d08bb7efdb8e8'
+            'f5d5c6cadee32e6b2c05a98d9eebeab3fcd61eb9b78aab18f46afedbd15a6135'
             '8a9962947917a207b2648c9be705f5e6c2f64120085bf514929fe11c20ca8b6e'
-            '3c0e4fbf0037795dcc9013a871cf18a289ab183ac0809111e74a58580d0b1c03'
+            '0e9ff4ee3ef214ef48cfcc73b0337f751feee24366f1f871687a871b417efe30'
             '1b0a55a83d591047c5e244a40f991fbb151bf98aeb39a5856272731442043301'
             '32c7d774d68ff9f1adc053fd55c2ac1a1c0f31bbfabed2528acb96c05ce64e00')
 
