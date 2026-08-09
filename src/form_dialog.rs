@@ -1,3 +1,4 @@
+use crate::ui::{section_box, time_spin};
 use calendar::model::{make_datetime, Appointment};
 use chrono::{Datelike, NaiveDate, Timelike};
 use gtk::prelude::*;
@@ -279,15 +280,7 @@ pub fn run_appointment_dialog(
             }
             Err(msg) => {
                 // Keep the form open so the user can correct the input.
-                let err = MessageDialog::new(
-                    Some(d),
-                    gtk::DialogFlags::MODAL,
-                    gtk::MessageType::Error,
-                    ButtonsType::Ok,
-                    &msg,
-                );
-                err.connect_response(|e, _| e.close());
-                err.present();
+                crate::ui::show_error(d, &msg);
             }
         }
         let _ = res;
@@ -368,29 +361,6 @@ fn build_appointment(
         )
     };
     Ok(appt)
-}
-
-/// A zero-padded, wrapping spin button for HH or MM time entry. Constraining
-/// input to a valid range prevents the invalid-time errors that free-text
-/// entries allowed, and the two-digit display keeps times aligned.
-fn time_spin(max: f64) -> SpinButton {
-    let sb = SpinButton::with_range(0.0, max, 1.0);
-    sb.set_digits(0);
-    sb.set_numeric(true);
-    sb.set_wrap(true);
-    sb.set_width_chars(2);
-    sb.connect_output(|sb| {
-        sb.set_text(&format!("{:02}", sb.value_as_int()));
-        gtk::glib::Propagation::Stop
-    });
-    sb
-}
-
-fn section_box() -> gtk::Box {
-    let b = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    b.add_css_class("form-section");
-    b.set_hexpand(true);
-    b
 }
 
 fn row_widget(label: &str, w: &impl IsA<gtk::Widget>) -> gtk::Box {

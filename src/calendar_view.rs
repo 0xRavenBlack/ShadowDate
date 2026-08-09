@@ -33,7 +33,7 @@ impl CalendarView {
         store: Rc<RefCell<Store>>,
         on_edit: std::boxed::Box<dyn Fn(&Appointment) + 'static>,
         on_new: std::boxed::Box<dyn Fn(NaiveDate) + 'static>,
-    ) -> Self {
+    ) -> Rc<Self> {
         let sel = today();
         let state = Rc::new(RefCell::new(ViewState {
             selected: sel,
@@ -131,7 +131,7 @@ impl CalendarView {
         new_btn.set_tooltip_text(Some(calendar::i18n::t("new")));
         new_btn.add_css_class("new-button");
 
-        let view = Self {
+        let view = Rc::new(Self {
             widget,
             grid,
             grid_scroll,
@@ -146,25 +146,18 @@ impl CalendarView {
             next_btn,
             today_btn,
             new_btn,
-        };
+        });
 
         view.wire_nav();
         view.refresh();
         view
     }
 
-    fn wire_nav(&self) {
+    fn wire_nav(self: &Rc<Self>) {
         {
-            let st = self.state.clone();
-            let g = self.grid.clone();
-            let ml = self.month_label.clone();
-            let lb = self.list_box.clone();
-            let dl = self.day_label.clone();
-            let oe = self.on_edit.clone();
-            let on = self.on_new.clone();
-            let sto = self.store.clone();
+            let this = self.clone();
             self.prev_btn.connect_clicked(move |_| {
-                let mut s = st.borrow_mut();
+                let mut s = this.state.borrow_mut();
                 if s.view_month == 1 {
                     s.view_month = 12;
                     s.view_year -= 1;
@@ -172,20 +165,13 @@ impl CalendarView {
                     s.view_month -= 1;
                 }
                 drop(s);
-                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe, &on);
+                this.refresh_all();
             });
         }
         {
-            let st = self.state.clone();
-            let g = self.grid.clone();
-            let ml = self.month_label.clone();
-            let lb = self.list_box.clone();
-            let dl = self.day_label.clone();
-            let oe = self.on_edit.clone();
-            let on = self.on_new.clone();
-            let sto = self.store.clone();
+            let this = self.clone();
             self.next_btn.connect_clicked(move |_| {
-                let mut s = st.borrow_mut();
+                let mut s = this.state.borrow_mut();
                 if s.view_month == 12 {
                     s.view_month = 1;
                     s.view_year += 1;
@@ -193,35 +179,27 @@ impl CalendarView {
                     s.view_month += 1;
                 }
                 drop(s);
-                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe, &on);
+                this.refresh_all();
             });
         }
         {
-            let st = self.state.clone();
-            let g = self.grid.clone();
-            let ml = self.month_label.clone();
-            let lb = self.list_box.clone();
-            let dl = self.day_label.clone();
-            let oe = self.on_edit.clone();
-            let on = self.on_new.clone();
-            let sto = self.store.clone();
+            let this = self.clone();
             self.today_btn.connect_clicked(move |_| {
                 let t = today();
                 {
-                    let mut s = st.borrow_mut();
+                    let mut s = this.state.borrow_mut();
                     s.view_year = t.year();
                     s.view_month = t.month();
                     s.selected = t;
                 }
-                refresh_all(&g, &ml, &lb, &dl, &st, &sto, &oe, &on);
+                this.refresh_all();
             });
         }
         {
-            let st = self.state.clone();
-            let on_new = self.on_new.clone();
+            let this = self.clone();
             self.new_btn.connect_clicked(move |_| {
-                let d = st.borrow().selected;
-                on_new(d);
+                let d = this.state.borrow().selected;
+                (this.on_new)(d);
             });
         }
         {
@@ -229,17 +207,10 @@ impl CalendarView {
             // Space open the new-appointment form for the selected day. The
             // controller lives on the (focusable) grid scroller, so it keeps
             // receiving keys no matter which day cell is rebuilt on refresh.
-            let st = self.state.clone();
-            let g = self.grid.clone();
-            let ml = self.month_label.clone();
-            let lb = self.list_box.clone();
-            let dl = self.day_label.clone();
-            let oe = self.on_edit.clone();
-            let on = self.on_new.clone();
-            let sto = self.store.clone();
+            let this = self.clone();
             let nav_keys = gtk::EventControllerKey::new();
             nav_keys.connect_key_pressed(move |_, keyval, _, _| {
-                let selected = st.borrow().selected;
+                let selected = this.state.borrow().selected;
                 let next = match keyval {
                     gtk::gdk::Key::Left => selected - chrono::TimeDelta::days(1),
                     gtk::gdk::Key::Right => selected + chrono::TimeDelta::days(1),
@@ -247,21 +218,20 @@ impl CalendarView {
                     gtk::gdk::Key::Down => selected + chrono::TimeDelta::days(7),
                     _ => return gtk::glib::Propagation::Proceed,
                 };
-                select_date(&st, &g, &ml, &lb, &dl, &sto, &oe, &on, next);
+                this.select_date(next);
                 gtk::glib::Propagation::Stop
             });
             self.grid_scroll.add_controller(nav_keys);
 
-            let st = self.state.clone();
-            let on = self.on_new.clone();
+            let this = self.clone();
             let action_keys = gtk::EventControllerKey::new();
             action_keys.connect_key_pressed(move |_, keyval, _, _| {
-                let d = st.borrow().selected;
+                let d = this.state.borrow().selected;
                 match keyval {
                     gtk::gdk::Key::Return
                     | gtk::gdk::Key::KP_Enter
                     | gtk::gdk::Key::space => {
-                        on(d);
+                        (this.on_new)(d);
                         gtk::glib::Propagation::Stop
                     }
                     _ => gtk::glib::Propagation::Proceed,
@@ -271,201 +241,147 @@ impl CalendarView {
         }
     }
 
-    pub fn refresh(&self) {
-        refresh_all(
-            &self.grid,
-            &self.month_label,
-            &self.list_box,
-            &self.day_label,
-            &self.state,
-            &self.store,
-            &self.on_edit,
-            &self.on_new,
-        );
-    }
-}
-
-/// Select `date`, navigating the viewed month when it lies outside the
-/// currently displayed month, and rebuild the whole view around it.
-#[allow(clippy::too_many_arguments)]
-fn select_date(
-    state: &Rc<RefCell<ViewState>>,
-    grid: &Grid,
-    month_label: &Label,
-    list_box: &ListBox,
-    day_label: &Label,
-    store: &Rc<RefCell<Store>>,
-    on_edit: &Rc<dyn Fn(&Appointment) + 'static>,
-    on_new: &Rc<dyn Fn(NaiveDate) + 'static>,
-    date: NaiveDate,
-) {
-    {
-        let mut s = state.borrow_mut();
-        if s.view_year != date.year() || s.view_month != date.month() {
-            s.view_year = date.year();
-            s.view_month = date.month();
+    /// Select `date`, navigating the viewed month when it lies outside the
+    /// currently displayed month, and rebuild the whole view around it.
+    fn select_date(self: &Rc<Self>, date: NaiveDate) {
+        {
+            let mut s = self.state.borrow_mut();
+            if s.view_year != date.year() || s.view_month != date.month() {
+                s.view_year = date.year();
+                s.view_month = date.month();
+            }
+            s.selected = date;
         }
-        s.selected = date;
+        self.refresh_all();
     }
-    refresh_all(grid, month_label, list_box, day_label, state, store, on_edit, on_new);
-}
 
-#[allow(clippy::too_many_arguments)]
-fn refresh_all(
-    grid: &Grid,
-    month_label: &Label,
-    list_box: &ListBox,
-    day_label: &Label,
-    state: &Rc<RefCell<ViewState>>,
-    store: &Rc<RefCell<Store>>,
-    on_edit: &Rc<dyn Fn(&Appointment) + 'static>,
-    on_new: &Rc<dyn Fn(NaiveDate) + 'static>,
-) {
-    render_month(grid, month_label, list_box, day_label, state, store, on_edit, on_new);
-    render_day(list_box, day_label, state, store, on_edit, on_new);
-}
-
-#[allow(clippy::too_many_arguments)]
-fn render_month(
-    grid: &Grid,
-    month_label: &Label,
-    list_box: &ListBox,
-    day_label: &Label,
-    state: &Rc<RefCell<ViewState>>,
-    store: &Rc<RefCell<Store>>,
-    on_edit: &Rc<dyn Fn(&Appointment) + 'static>,
-    on_new: &Rc<dyn Fn(NaiveDate) + 'static>,
-) {
-    while let Some(child) = grid.first_child() {
-        grid.remove(&child);
+    pub fn refresh(self: &Rc<Self>) {
+        self.refresh_all();
     }
-    let (view_year, view_month, selected) = {
-        let s = state.borrow();
-        (s.view_year, s.view_month, s.selected)
-    };
-    let month_name = calendar::i18n::format_month_year(view_year, (view_month - 1) as usize);
-    month_label.set_text(&month_name);
 
-    let weekdays = calendar::i18n::weekday_abbrevs();
-    for (i, wd) in weekdays.iter().enumerate() {
-        let l = Label::new(Some(wd));
-        l.add_css_class("weekday-header");
-        if i >= 5 {
-            l.add_css_class("weekend-header");
-        } else {
-            l.add_css_class("weekday-workday");
+    fn refresh_all(self: &Rc<Self>) {
+        self.render_month();
+        self.render_day();
+    }
+
+    fn render_month(self: &Rc<Self>) {
+        while let Some(child) = self.grid.first_child() {
+            self.grid.remove(&child);
         }
-        l.set_xalign(0.5);
-        grid.attach(&l, i as i32, 0, 1, 1);
+        let (view_year, view_month, selected) = {
+            let s = self.state.borrow();
+            (s.view_year, s.view_month, s.selected)
+        };
+        let month_name = calendar::i18n::format_month_year(view_year, (view_month - 1) as usize);
+        self.month_label.set_text(&month_name);
+
+        let weekdays = calendar::i18n::weekday_abbrevs();
+        for (i, wd) in weekdays.iter().enumerate() {
+            let l = Label::new(Some(wd));
+            l.add_css_class("weekday-header");
+            if i >= 5 {
+                l.add_css_class("weekend-header");
+            } else {
+                l.add_css_class("weekday-workday");
+            }
+            l.set_xalign(0.5);
+            self.grid.attach(&l, i as i32, 0, 1, 1);
+        }
+
+        let first = NaiveDate::from_ymd_opt(view_year, view_month, 1)
+            .expect("view_year/view_month should always be valid");
+        let first_weekday = first.weekday().num_days_from_monday() as i32;
+        let t = today();
+
+        // Render the full 6x7 frame so the grid is always a solid rectangle.
+        // Cells before the 1st and after the last day come from the previous/next
+        // month and are dimmed; clicking one navigates to its month.
+        for r in 1..=6 {
+            for c in 0..7 {
+                let cell_index = ((r - 1) * 7 + c) as usize;
+                let offset = cell_offset(first_weekday, cell_index);
+                let date = first + chrono::TimeDelta::days(offset as i64);
+                let other_month = date.year() != view_year || date.month() != view_month;
+                let appts: Vec<Appointment> =
+                    self.store.borrow().on_date(date).into_iter().cloned().collect();
+                let is_today = date == t;
+                let is_selected = date == selected;
+                let cell = build_cell(
+                    &date.day().to_string(),
+                    other_month,
+                    is_today,
+                    is_selected,
+                    &appts,
+                );
+                let this = self.clone();
+                // Cells are rebuilt on every render, so a fresh click gesture is
+                // attached per cell; the old cell (and its controller) is dropped
+                // when removed from the grid above, so this does not leak.
+                let ev = gtk::GestureClick::new();
+                ev.connect_pressed(move |_, _, _, _| {
+                    this.select_date(date);
+                });
+                cell.add_controller(ev);
+                self.grid.attach(&cell, c, r, 1, 1);
+            }
+        }
+
+        // Keep keyboard focus on the grid scroller so arrow navigation continues
+        // to work after every rebuild.
+        if let Some(parent) = self.grid.parent() {
+            parent.grab_focus();
+        }
     }
 
-    let first = NaiveDate::from_ymd_opt(view_year, view_month, 1)
-        .expect("view_year/view_month should always be valid");
-    let first_weekday = first.weekday().num_days_from_monday() as i32;
-    let t = today();
-
-    // Render the full 6x7 frame so the grid is always a solid rectangle.
-    // Cells before the 1st and after the last day come from the previous/next
-    // month and are dimmed; clicking one navigates to its month.
-    for r in 1..=6 {
-        for c in 0..7 {
-            let cell_index = ((r - 1) * 7 + c) as usize;
-            let offset = cell_offset(first_weekday, cell_index);
-            let date = first + chrono::TimeDelta::days(offset as i64);
-            let other_month = date.year() != view_year || date.month() != view_month;
-            let appts: Vec<Appointment> =
-                store.borrow().on_date(date).into_iter().cloned().collect();
-            let is_today = date == t;
-            let is_selected = date == selected;
-            let cell = build_cell(
-                &date.day().to_string(),
-                other_month,
-                is_today,
-                is_selected,
-                &appts,
-            );
-            let st = state.clone();
-            let g = grid.clone();
-            let ml = month_label.clone();
-            let lb = list_box.clone();
-            let dl = day_label.clone();
-            let oe = on_edit.clone();
-            let on = on_new.clone();
-            let sto = store.clone();
-            // Cells are rebuilt on every render, so a fresh click gesture is
-            // attached per cell; the old cell (and its controller) is dropped
-            // when removed from the grid above, so this does not leak.
+    fn render_day(self: &Rc<Self>) {
+        while let Some(child) = self.list_box.first_child() {
+            self.list_box.remove(&child);
+        }
+        let s = self.state.borrow();
+        self.day_label.set_text(&calendar::i18n::format_date(s.selected));
+        let appts: Vec<Appointment> =
+            self.store.borrow().on_date(s.selected).into_iter().cloned().collect();
+        for a in &appts {
+            let row = build_appt_row(a);
+            let uid = a.uid.clone();
+            let this = self.clone();
+            // Rows are rebuilt on each render; the old row and its controller drop
+            // when removed from the list box above, so attaching a fresh gesture
+            // per row does not leak.
             let ev = gtk::GestureClick::new();
             ev.connect_pressed(move |_, _, _, _| {
-                select_date(&st, &g, &ml, &lb, &dl, &sto, &oe, &on, date);
+                let appt_opt = this.store.borrow().get(&uid).cloned();
+                if let Some(appt) = appt_opt {
+                    (this.on_edit)(&appt);
+                }
             });
-            cell.add_controller(ev);
-            grid.attach(&cell, c, r, 1, 1);
+            row.add_controller(ev);
+            let lbrow = ListBoxRow::new();
+            lbrow.set_child(Some(&row));
+            self.list_box.append(&lbrow);
         }
-    }
+        if appts.is_empty() {
+            let empty_box = Box::new(gtk::Orientation::Vertical, 6);
+            empty_box.set_halign(gtk::Align::Center);
+            empty_box.set_margin_top(16);
+            let empty = Label::new(Some(calendar::i18n::t("no_appointments")));
+            empty.add_css_class("empty-label");
+            empty_box.append(&empty);
 
-    // Keep keyboard focus on the grid scroller so arrow navigation continues
-    // to work after every rebuild.
-    if let Some(parent) = grid.parent() {
-        parent.grab_focus();
-    }
-}
+            let add_btn = Button::with_label(calendar::i18n::t("add_appointment"));
+            add_btn.add_css_class("empty-cta");
+            let this = self.clone();
+            let selected = s.selected;
+            add_btn.connect_clicked(move |_| {
+                (this.on_new)(selected);
+            });
+            empty_box.append(&add_btn);
 
-fn render_day(
-    list_box: &ListBox,
-    day_label: &Label,
-    state: &Rc<RefCell<ViewState>>,
-    store: &Rc<RefCell<Store>>,
-    on_edit: &Rc<dyn Fn(&Appointment) + 'static>,
-    on_new: &Rc<dyn Fn(NaiveDate) + 'static>,
-) {
-    while let Some(child) = list_box.first_child() {
-        list_box.remove(&child);
-    }
-    let s = state.borrow();
-    day_label.set_text(&calendar::i18n::format_date(s.selected));
-    let appts: Vec<Appointment> = store.borrow().on_date(s.selected).into_iter().cloned().collect();
-    for a in &appts {
-        let row = build_appt_row(a);
-        let uid = a.uid.clone();
-        let on_edit = on_edit.clone();
-        let sto = store.clone();
-        // Rows are rebuilt on each render; the old row and its controller drop
-        // when removed from the list box above, so attaching a fresh gesture
-        // per row does not leak.
-        let ev = gtk::GestureClick::new();
-        ev.connect_pressed(move |_, _, _, _| {
-            let appt_opt = sto.borrow().get(&uid).cloned();
-            if let Some(appt) = appt_opt {
-                on_edit(&appt);
-            }
-        });
-        row.add_controller(ev);
-        let lbrow = ListBoxRow::new();
-        lbrow.set_child(Some(&row));
-        list_box.append(&lbrow);
-    }
-    if appts.is_empty() {
-        let empty_box = Box::new(gtk::Orientation::Vertical, 6);
-        empty_box.set_halign(gtk::Align::Center);
-        empty_box.set_margin_top(16);
-        let empty = Label::new(Some(calendar::i18n::t("no_appointments")));
-        empty.add_css_class("empty-label");
-        empty_box.append(&empty);
-
-        let add_btn = Button::with_label(calendar::i18n::t("add_appointment"));
-        add_btn.add_css_class("empty-cta");
-        let selected = s.selected;
-        let on_new = on_new.clone();
-        add_btn.connect_clicked(move |_| {
-            on_new(selected);
-        });
-        empty_box.append(&add_btn);
-
-        let lbrow = ListBoxRow::new();
-        lbrow.set_child(Some(&empty_box));
-        lbrow.set_selectable(false);
-        list_box.append(&lbrow);
+            let lbrow = ListBoxRow::new();
+            lbrow.set_child(Some(&empty_box));
+            lbrow.set_selectable(false);
+            self.list_box.append(&lbrow);
+        }
     }
 }
 
@@ -485,8 +401,7 @@ fn build_cell(
     is_today: bool,
     is_selected: bool,
     appts: &[Appointment],
-) -> Box {
-    let cell = Box::new(gtk::Orientation::Vertical, 2);
+) -> Box {    let cell = Box::new(gtk::Orientation::Vertical, 2);
     cell.add_css_class("day-cell");
     cell.set_valign(gtk::Align::Fill);
     if other_month {
@@ -538,7 +453,7 @@ fn build_cell(
         let detail: Vec<String> = appts
             .iter()
             .map(|a| {
-                let mut s = format!("• {}  {}", a.time_label(calendar::i18n::t("all_day_short")), a.title);
+                let mut s = format!("• {}  {}", appt_time_label(a), a.title);
                 if !a.location.is_empty() {
                     s.push_str(&format!("  @ {}", a.location));
                 }
@@ -551,6 +466,17 @@ fn build_cell(
         cell.set_tooltip_text(Some(&detail.join("\n")));
     }
     cell
+}
+
+/// Localized time meta for an appointment row/cell: the "All day" tag for
+/// all-day events, otherwise the start–end range. Translation lives in the
+/// view/i18n layer; the model never formats localized strings.
+fn appt_time_label(a: &Appointment) -> String {
+    if a.all_day {
+        calendar::i18n::t("all_day_short").to_string()
+    } else {
+        calendar::i18n::time_range(&a.start, &a.end)
+    }
 }
 
 fn build_appt_row(a: &Appointment) -> Box {
@@ -574,7 +500,7 @@ fn build_appt_row(a: &Appointment) -> Box {
         tag.set_xalign(0.0);
         row.append(&tag);
     }
-    let meta = Label::new(Some(&format!("{}   {}", a.time_label(calendar::i18n::t("all_day_short")), a.location)));
+    let meta = Label::new(Some(&format!("{}   {}", appt_time_label(a), a.location)));
     meta.add_css_class("appt-meta");
     meta.set_xalign(0.0);
     meta.set_ellipsize(gtk::pango::EllipsizeMode::End);

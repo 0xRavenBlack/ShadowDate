@@ -4,11 +4,12 @@
 //! The config is persisted to `$XDG_CONFIG_HOME/shadowdate/service.toml`; the
 //! daemon watches that file and picks up changes without a restart.
 
+use crate::ui::{section_box, show_error, time_spin};
 use calendar::i18n;
 use calendar::paths;
 use calendar::service::{self, ServiceConfig, SERVICE_NAME};
 use gtk::prelude::*;
-use gtk::{Box, Button, Dialog, Label, MessageDialog, MessageType, ResponseType, SpinButton};
+use gtk::{Box, Button, Dialog, Label, ResponseType, SpinButton};
 use std::cell::RefCell;
 use std::process::Command;
 use std::rc::Rc;
@@ -265,37 +266,4 @@ fn systemctl(args: &[&str]) -> Result<(), String> {
         }
         Err(e) => Err(format!("systemctl: {}", e)),
     }
-}
-
-/// A zero-padded, wrapping HH/MM spin button (mirrors the form dialog's style).
-fn time_spin(max: f64) -> SpinButton {
-    let sb = SpinButton::with_range(0.0, max, 1.0);
-    sb.set_digits(0);
-    sb.set_numeric(true);
-    sb.set_wrap(true);
-    sb.set_width_chars(2);
-    sb.connect_output(|sb| {
-        sb.set_text(&format!("{:02}", sb.value_as_int()));
-        gtk::glib::Propagation::Stop
-    });
-    sb
-}
-
-fn section_box() -> Box {
-    let b = Box::new(gtk::Orientation::Vertical, 12);
-    b.add_css_class("form-section");
-    b.set_hexpand(true);
-    b
-}
-
-fn show_error(parent: &impl IsA<gtk::Window>, msg: &str) {
-    let d = MessageDialog::new(
-        Some(parent),
-        gtk::DialogFlags::MODAL,
-        MessageType::Error,
-        gtk::ButtonsType::Ok,
-        msg,
-    );
-    d.connect_response(|d, _| d.close());
-    d.present();
 }

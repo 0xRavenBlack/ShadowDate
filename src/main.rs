@@ -2,6 +2,7 @@ mod calendar_view;
 mod form_dialog;
 mod images;
 mod service_settings;
+mod ui;
 
 use calendar::i18n;
 use calendar::io_ics;
@@ -15,7 +16,9 @@ use gtk::{
     Application, ApplicationWindow, Button, FileChooserAction, FileChooserDialog, HeaderBar,
 };
 use std::cell::RefCell;
+use std::path::Path;
 use std::rc::Rc;
+use ui::{show_error, show_warning};
 
 fn main() -> gtk::glib::ExitCode {
     bail_if_already_running();
@@ -185,7 +188,7 @@ fn build_ui(app: &Application) {
 
     let nav_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
 
-    let view_ref: Rc<RefCell<Option<CalendarView>>> = Rc::new(RefCell::new(None));
+    let view_ref: Rc<RefCell<Option<Rc<CalendarView>>>> = Rc::new(RefCell::new(None));
 
     let on_edit: std::boxed::Box<dyn Fn(&Appointment) + 'static> = {
         let window = window.clone();
@@ -215,22 +218,12 @@ fn build_ui(app: &Application) {
                         // (now non-recurring) appointment the user submitted.
                         store.borrow_mut().remove_series(&del_series);
                         store.borrow_mut().insert(result);
-                        if let Err(e) = io_ics::save_store(&store.borrow(), &path) {
-                            show_error(&result_window, &e.to_string());
-                        }
-                        if let Some(v) = view_ref.borrow().as_ref() {
-                            v.refresh();
-                        }
+                        commit(&store, &path, &view_ref, &result_window);
                     }
                 }),
                 Some(std::boxed::Box::new(move || {
                     del_store.borrow_mut().remove_series(&del_series2);
-                    if let Err(e) = io_ics::save_store(&del_store.borrow(), &del_path) {
-                        show_error(&del_window, &e.to_string());
-                    }
-                    if let Some(v) = del_view.borrow().as_ref() {
-                        v.refresh();
-                    }
+                    commit(&del_store, &del_path, &del_view, &del_window);
                 })),
             );
         })
@@ -254,12 +247,7 @@ fn build_ui(app: &Application) {
                 std::boxed::Box::new(move |result| {
                     if let Some(result) = result {
                         store.borrow_mut().insert(result);
-                        if let Err(e) = io_ics::save_store(&store.borrow(), &path) {
-                            show_error(&result_window, &e.to_string());
-                        }
-                        if let Some(v) = view_ref.borrow().as_ref() {
-                            v.refresh();
-                        }
+                        commit(&store, &path, &view_ref, &result_window);
                     }
                 }),
                 None,
@@ -331,12 +319,7 @@ fn build_ui(app: &Application) {
                             match io_ics::import_ics_with_warnings(&p) {
                                 Ok((imported, warnings)) => {
                                     io_ics::merge_store(&mut store.borrow_mut(), imported);
-                                    if let Err(e) = io_ics::save_store(&store.borrow(), &path) {
-                                        show_error(&w, &e.to_string());
-                                    }
-                                    if let Some(v) = view_ref.borrow().as_ref() {
-                                        v.refresh();
-                                    }
+                                    commit(&store, &path, &view_ref, &w);
                                     if !warnings.is_empty() {
                                         show_warning(
                                             &w,
@@ -382,8 +365,7 @@ fn build_ui(app: &Application) {
                 if response == gtk::ResponseType::Accept {
                     if let Some(file) = dlg.file() {
                         if let Some(p) = file.path() {
-                            if let Err(e) =
-                                io_ics::export_ics(&store.borrow(), &p, "-//ravenblack//calendar//EN")
+                            if let Err(e) = io_ics::export_ics(&store.borrow(), &p, io_ics::PRODID)
                             {
                                 show_error(&parent, &e.to_string());
                             }
@@ -402,26 +384,19 @@ fn build_ui(app: &Application) {
     }
 }
 
-fn show_error(parent: &impl IsA<gtk::Window>, msg: &str) {
-    let dlg = gtk::MessageDialog::new(
-        Some(parent),
-        gtk::DialogFlags::MODAL,
-        gtk::MessageType::Error,
-        gtk::ButtonsType::Ok,
-        msg,
-    );
-    dlg.connect_response(|d, _| d.close());
-    dlg.present();
-}
-
-fn show_warning(parent: &impl IsA<gtk::Window>, msg: &str) {
-    let dlg = gtk::MessageDialog::new(
-        Some(parent),
-        gtk::DialogFlags::MODAL,
-        gtk::MessageType::Warning,
-        gtk::ButtonsType::Ok,
-        msg,
-    );
-    dlg.connect_response(|d, _| d.close());
-    dlg.present();
+/// Persist the store after a mutation and refresh the view. Surfaces a save
+/// error to the user; the view is only rebuilt once the write attempt finished
+/// so a failed save still shows the last good state on disk.
+fn commit(
+    store: &Rc<RefCell<Store>>,
+    path: &Path,
+    view_ref: &Rc<RefCell<Option<Rc<CalendarView>>>>,
+    window: &impl IsA<gtk::Window>,
+) {
+    if let Err(e) = io_ics::save_store(&store.borrow(), path) {
+        show_error(window, &e.to_string());
+    }
+    if let Some(v) = view_ref.borrow().as_ref() {
+        v.refresh();
+    }
 }

@@ -1,4 +1,4 @@
-use crate::model::{Appointment, Store};
+use crate::model::{local_from_naive, Appointment, Store};
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime, TimeDelta, TimeZone, Weekday};
 use chrono_tz::Tz;
@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 /// Hard safety caps so a malformed/giant RRULE can never hang the importer.
 const MAX_OCCURRENCES: usize = 4000;
 const MAX_EXPAND_YEARS: i32 = 20;
+
+/// PRODID written into exported `.ics` files (also used when saving the store).
+pub const PRODID: &str = "-//ravenblack//calendar//EN";
 
 /// Parse an .ics file into a Store. Recurring events (RRULE) are expanded into
 /// individual occurrence appointments so the existing grid/list rendering works
@@ -148,14 +151,6 @@ fn parse_naive_dt(raw: &str) -> Result<NaiveDateTime> {
     NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%S")
         .or_else(|_| NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%S%f"))
         .map_err(|e| anyhow!("bad datetime {}: {}", raw, e))
-}
-
-/// Build a local DateTime, falling back across DST gaps.
-fn local_from_naive(ndt: NaiveDateTime) -> DateTime<Local> {
-    Local
-        .from_local_datetime(&ndt)
-        .single()
-        .unwrap_or_else(|| Local.timestamp_opt(ndt.and_utc().timestamp(), 0).unwrap())
 }
 
 fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
@@ -870,7 +865,7 @@ pub fn load_store(path: &Path) -> Result<(Store, Vec<String>)> {
 /// Save the store to the default data file (also the export format). Written
 /// atomically so a concurrently-reading reminder daemon never sees a torn file.
 pub fn save_store(store: &Store, path: &Path) -> Result<()> {
-    let data = store_to_ics(store, "-//ravenblack//calendar//EN");
+    let data = store_to_ics(store, PRODID);
     write_atomic(path, &data)
 }
 

@@ -237,11 +237,7 @@ pub fn reminder_body(appt: &Appointment) -> String {
             format!("{} · {}", all_day, appt.location)
         }
     } else {
-        let times = format!(
-            "{} – {}",
-            appt.start.format("%H:%M"),
-            appt.end.format("%H:%M")
-        );
+        let times = crate::i18n::time_range(&appt.start, &appt.end);
         if appt.location.is_empty() {
             times
         } else {

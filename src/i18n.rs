@@ -520,3 +520,12 @@ pub fn format_date(d: NaiveDate) -> String {
         Lang::Pl => format!("{}, {} {} {}", wd, day, m, year),
     }
 }
+
+/// Time range "HH:MM – HH:MM" for a timed appointment. Shared by the calendar
+/// view and the reminder notification body.
+pub fn time_range(
+    start: &chrono::DateTime<chrono::Local>,
+    end: &chrono::DateTime<chrono::Local>,
+) -> String {
+    format!("{} – {}", start.format("%H:%M"), end.format("%H:%M"))
+}

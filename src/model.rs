@@ -75,18 +75,6 @@ impl Appointment {
     pub fn date(&self) -> NaiveDate {
         self.start.date_naive()
     }
-
-    pub fn time_label(&self, all_day_str: &str) -> String {
-        if self.all_day {
-            all_day_str.to_string()
-        } else {
-            format!(
-                "{} – {}",
-                self.start.format("%H:%M"),
-                self.end.format("%H:%M")
-            )
-        }
-    }
 }
 
 fn color_for_uid(uid: &str) -> usize {
@@ -184,23 +172,28 @@ impl Store {
     }
 }
 
-/// Helper to build a local DateTime from date + optional time components.
+/// Build a local DateTime from a naive value, falling back across DST
+/// transitions where the local time is ambiguous or non-existent.
 ///
-/// During a DST transition a local time can be ambiguous or non-existent, so
-/// `from_local_datetime(...).single()` may return `None`. In that case we fall
-/// back to interpreting the naive value as a UTC timestamp; this is acceptable
-/// for this app (times near a DST boundary may shift by an hour). `hour`/`min`
-/// are clamped instead of panicking so a hand-edited service config or form
-/// input can never crash the daemon/app.
+/// `from_local_datetime(...).single()` returns `None` in that case; we fall
+/// back to interpreting the naive value as a UTC timestamp, which is acceptable
+/// for this app (times near a DST boundary may shift by an hour).
+pub fn local_from_naive(ndt: NaiveDateTime) -> DateTime<Local> {
+    Local
+        .from_local_datetime(&ndt)
+        .single()
+        .unwrap_or_else(|| Local.timestamp_opt(ndt.and_utc().timestamp(), 0).unwrap())
+}
+
+/// Helper to build a local DateTime from date + optional time components.
+/// `hour`/`min` are clamped instead of panicking so a hand-edited service
+/// config or form input can never crash the daemon/app.
 pub fn make_datetime(date: NaiveDate, hour: u32, min: u32) -> DateTime<Local> {
     let ndt = NaiveDateTime::new(
         date,
         chrono::NaiveTime::from_hms_opt(hour.min(23), min.min(59), 0).unwrap(),
     );
-    Local
-        .from_local_datetime(&ndt)
-        .single()
-        .unwrap_or_else(|| Local.timestamp_opt(ndt.and_utc().timestamp(), 0).unwrap())
+    local_from_naive(ndt)
 }
 
 pub fn today() -> NaiveDate {
