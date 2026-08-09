@@ -139,7 +139,7 @@ pub fn pending_reminders<'a>(
     fired: &HashSet<String>,
 ) -> Vec<(String, &'a Appointment)> {
     let mut pending: Vec<(String, &'a Appointment)> = Vec::new();
-    for appt in &store.items {
+    for appt in store.items() {
         if appt.end <= now {
             continue;
         }

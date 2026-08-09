@@ -271,7 +271,15 @@ fn expand_recurrence(
 
     let mut dates: Vec<NaiveDate> = Vec::new();
     let mut emitted = 0usize;
-    let mut count_ok = |d: NaiveDate| -> bool {
+
+    // Register `d` as an occurrence when it is inside the rule's window, and
+    // report whether generation may stop: true once COUNT is reached or the
+    // MAX_OCCURRENCES safety cap is hit. Dates rejected by UNTIL/hard_stop are
+    // dropped *without* ending the scan — BYDAY/BYMONTHDAY lists are not
+    // guaranteed to be in chronological order, so one candidate past a boundary
+    // does not mean the remaining candidates in this week/month are past it
+    // too. The loops bound the scan with `hard_stop`, so the lookahead is small.
+    let mut emit = |d: NaiveDate| -> bool {
         if d > hard_stop {
             return false;
         }
@@ -288,16 +296,16 @@ fn expand_recurrence(
         emitted += 1;
         if let Some(c) = rule.count {
             if emitted >= c {
-                return false;
+                return true;
             }
         }
-        emitted < MAX_OCCURRENCES
+        emitted >= MAX_OCCURRENCES
     };
 
     match freq {
         Freq::Daily => {
             let mut d = base_date;
-            while count_ok(d) {
+            while d <= hard_stop && !emit(d) {
                 d += TimeDelta::days(interval as i64);
             }
         }
@@ -308,11 +316,11 @@ fn expand_recurrence(
                 rule.byday.iter().map(|(wd, _)| *wd).collect()
             };
             let mut week = base_date;
-            while week <= hard_stop {
+            'outer: while week <= hard_stop {
                 for wd in &bydays {
                     let cand = date_of_weekday_in_week(week, *wd, rule.wkst);
-                    if cand >= base_date && !count_ok(cand) {
-                        return finish(dates, base_date, base_time, duration, all_day);
+                    if cand >= base_date && emit(cand) {
+                        break 'outer;
                     }
                 }
                 week += TimeDelta::weeks(interval as i64);
@@ -321,7 +329,7 @@ fn expand_recurrence(
         Freq::Monthly => {
             let mut year = base_date.year();
             let mut month = base_date.month();
-            while NaiveDate::from_ymd_opt(year, month, 1)
+            'outer: while NaiveDate::from_ymd_opt(year, month, 1)
                 .expect("year/month in expansion loop should be valid")
                 <= hard_stop {
                 let days: Vec<NaiveDate> = if !rule.bymonthday.is_empty() {
@@ -340,8 +348,8 @@ fn expand_recurrence(
                         .collect()
                 };
                 for d in days {
-                    if d >= base_date && !count_ok(d) {
-                        return finish(dates, base_date, base_time, duration, all_day);
+                    if d >= base_date && emit(d) {
+                        break 'outer;
                     }
                 }
                 // advance month by interval
@@ -352,7 +360,7 @@ fn expand_recurrence(
         }
         Freq::Yearly => {
             let mut year = base_date.year();
-            while NaiveDate::from_ymd_opt(year, 1, 1)
+            'outer: while NaiveDate::from_ymd_opt(year, 1, 1)
                 .expect("year in expansion loop should be valid")
                 <= hard_stop {
                 let months: Vec<u32> = if rule.bymonth.is_empty() {
@@ -377,8 +385,8 @@ fn expand_recurrence(
                             .collect()
                     };
                     for d in day {
-                        if d >= base_date && !count_ok(d) {
-                            return finish(dates, base_date, base_time, duration, all_day);
+                        if d >= base_date && emit(d) {
+                            break 'outer;
                         }
                     }
                 }
@@ -650,7 +658,7 @@ pub fn store_to_ics(store: &Store, prodid: &str) -> String {
     out.push_str("VERSION:2.0\r\n");
     out.push_str(&format!("PRODID:{}\r\n", prodid));
     out.push_str("CALSCALE:GREGORIAN\r\n");
-    for a in &store.items {
+    for a in store.items() {
         out.push_str("BEGIN:VEVENT\r\n");
         out.push_str(&fold_line(&format!("UID:{}", a.uid)));
         // Expanded occurrences of a recurring series share a `series_uid` (the
@@ -811,15 +819,36 @@ pub fn export_ics(store: &Store, path: &Path, prodid: &str) -> Result<()> {
 /// Write `data` to `path` atomically: write to a temp file in the same
 /// directory, then rename over the target. A concurrent reader (like the
 /// background `shadowdate-service`) can never observe a partially-written file.
+///
+/// The temp name carries a unique pid + timestamp suffix, so concurrent writers
+/// never clobber each other's in-flight file. A stale temp left by a crash
+/// between write and rename is harmless (it is never the target) and the temp
+/// is best-effort removed if the write or rename fails.
 pub fn write_atomic(path: &Path, data: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).ok();
     }
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, data).with_context(|| format!("writing {}", tmp.display()))?;
-    fs::rename(&tmp, path)
-        .with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()))?;
+    let tmp = temp_path(path);
+    if let Err(e) = fs::write(&tmp, data) {
+        fs::remove_file(&tmp).ok();
+        return Err(e).with_context(|| format!("writing {}", tmp.display()));
+    }
+    if let Err(e) = fs::rename(&tmp, path) {
+        fs::remove_file(&tmp).ok();
+        return Err(e).with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()));
+    }
     Ok(())
+}
+
+/// A unique temp-file name next to `path` (same directory, so the rename stays
+/// on one filesystem and is atomic). Pid + timestamp guard against collisions
+/// between concurrent writers of the same target.
+fn temp_path(path: &Path) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    path.with_extension(format!("tmp.{}.{}", std::process::id(), nanos))
 }
 
 /// Load the persistent store from the default data file, if it exists.
@@ -877,7 +906,7 @@ pub fn backup_corrupt(path: &Path) -> Option<PathBuf> {
 /// occurrences behind.
 pub fn merge_store(base: &mut Store, other: Store) {
     let series_uids: Vec<String> = other
-        .items
+        .items()
         .iter()
         .map(|a| a.series_uid.clone())
         .collect();
@@ -887,7 +916,7 @@ pub fn merge_store(base: &mut Store, other: Store) {
             base.remove_series(uid);
         }
     }
-    for a in other.items {
+    for a in other.into_items() {
         base.insert(a);
     }
 }

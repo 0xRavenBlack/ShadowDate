@@ -98,9 +98,13 @@ fn color_for_uid(uid: &str) -> usize {
 }
 
 /// In-memory store keyed by UID, plus a stable ordering.
+///
+/// `items` is private: it must only change through `insert`/`remove`/
+/// `remove_series` so the `index` map stays in sync. Use [`Store::items`] for
+/// read-only access.
 #[derive(Debug, Clone, Default)]
 pub struct Store {
-    pub items: Vec<Appointment>,
+    items: Vec<Appointment>,
     index: HashMap<String, usize>,
 }
 
@@ -122,11 +126,10 @@ impl Store {
         if let Some(pos) = self.index.remove(uid) {
             // swap_remove keeps the Vec compact in O(1); only the item that was
             // moved into `pos` needs its index entry corrected.
-            let swapped = self.items.swap_remove(pos);
+            self.items.swap_remove(pos);
             if let Some(moved) = self.items.get(pos) {
                 self.index.insert(moved.uid.clone(), pos);
             }
-            let _ = swapped;
         }
     }
 
@@ -167,6 +170,17 @@ impl Store {
             .collect();
         v.sort_by_key(|a| a.start);
         v
+    }
+
+    /// All appointments in insertion order. Read-only: mutations must go
+    /// through `insert`/`remove`/`remove_series` so the UID index stays valid.
+    pub fn items(&self) -> &[Appointment] {
+        &self.items
+    }
+
+    /// Consume the store, returning its appointments in insertion order.
+    pub fn into_items(self) -> Vec<Appointment> {
+        self.items
     }
 }
 
