@@ -117,16 +117,18 @@ button.exit-button:hover {
 }
 
 .day-cell {
-    background-color: rgba(35, 35, 51, 0.72);
-    border: 1px solid rgba(46, 46, 68, 0.8);
+    background-color: rgba(40, 40, 62, 0.85);
+    border: 1px solid rgba(84, 84, 122, 0.95);
     border-radius: 10px;
     padding: 6px;
     min-height: 38px;
-    color: #cfcfe6;
+    color: #f0f0fa;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
 .day-cell:hover {
-    background-color: rgba(44, 44, 64, 0.85);
+    background-color: rgba(54, 54, 82, 0.92);
+    border-color: rgba(106, 106, 150, 0.95);
 }
 
 .day-cell.today {
@@ -134,18 +136,19 @@ button.exit-button:hover {
 }
 
 .day-cell.selected {
-    background-color: rgba(47, 47, 71, 0.9);
-    border-color: #b39ddb;
+    background-color: rgba(60, 60, 94, 0.95);
+    border-color: #c7b6e8;
+    box-shadow: inset 0 0 0 2px rgba(179, 157, 219, 0.55);
 }
 
 /* Days from the previous/next month fill the grid frame but stay dimmed */
 .day-cell.other-month {
-    background-color: rgba(30, 30, 42, 0.55);
-    border-color: rgba(46, 46, 68, 0.35);
+    background-color: rgba(34, 34, 50, 0.68);
+    border-color: rgba(64, 64, 92, 0.5);
 }
 
 .day-cell.other-month .day-number {
-    color: #6a6a86;
+    color: #8a8aa8;
 }
 
 .day-cell.other-month .appt-dot {
