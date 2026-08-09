@@ -1,4 +1,5 @@
-use calendar::model::{today, Appointment, Store};
+use crate::AppContext;
+use calendar::model::{today, Appointment};
 use chrono::{Datelike, NaiveDate};
 use gtk::prelude::*;
 use gtk::{Box, Button, Grid, Label, ListBox, ListBoxRow, ScrolledWindow};
@@ -19,9 +20,7 @@ pub struct CalendarView {
     month_label: Label,
     day_label: Label,
     state: Rc<RefCell<ViewState>>,
-    store: Rc<RefCell<Store>>,
-    on_edit: Rc<dyn Fn(&Appointment) + 'static>,
-    on_new: Rc<dyn Fn(NaiveDate) + 'static>,
+    ctx: Rc<AppContext>,
     pub prev_btn: Button,
     pub next_btn: Button,
     pub today_btn: Button,
@@ -29,19 +28,13 @@ pub struct CalendarView {
 }
 
 impl CalendarView {
-    pub fn new(
-        store: Rc<RefCell<Store>>,
-        on_edit: std::boxed::Box<dyn Fn(&Appointment) + 'static>,
-        on_new: std::boxed::Box<dyn Fn(NaiveDate) + 'static>,
-    ) -> Rc<Self> {
+    pub fn new(ctx: Rc<AppContext>) -> Rc<Self> {
         let sel = today();
         let state = Rc::new(RefCell::new(ViewState {
             selected: sel,
             view_year: sel.year(),
             view_month: sel.month(),
         }));
-        let on_edit = Rc::from(on_edit);
-        let on_new = Rc::from(on_new);
 
         // Root overlay: a translucent portrait sits behind the calendar content.
         let widget = Box::new(gtk::Orientation::Vertical, 0);
@@ -139,9 +132,7 @@ impl CalendarView {
             month_label,
             day_label,
             state,
-            store,
-            on_edit,
-            on_new,
+            ctx,
             prev_btn,
             next_btn,
             today_btn,
@@ -199,7 +190,7 @@ impl CalendarView {
             let this = self.clone();
             self.new_btn.connect_clicked(move |_| {
                 let d = this.state.borrow().selected;
-                (this.on_new)(d);
+                this.ctx.open_new(d);
             });
         }
         {
@@ -231,7 +222,7 @@ impl CalendarView {
                     gtk::gdk::Key::Return
                     | gtk::gdk::Key::KP_Enter
                     | gtk::gdk::Key::space => {
-                        (this.on_new)(d);
+                        this.ctx.open_new(d);
                         gtk::glib::Propagation::Stop
                     }
                     _ => gtk::glib::Propagation::Proceed,
@@ -302,8 +293,14 @@ impl CalendarView {
                 let offset = cell_offset(first_weekday, cell_index);
                 let date = first + chrono::TimeDelta::days(offset as i64);
                 let other_month = date.year() != view_year || date.month() != view_month;
-                let appts: Vec<Appointment> =
-                    self.store.borrow().on_date(date).into_iter().cloned().collect();
+                let appts: Vec<Appointment> = self
+                    .ctx
+                    .store()
+                    .borrow()
+                    .on_date(date)
+                    .into_iter()
+                    .cloned()
+                    .collect();
                 let is_today = date == t;
                 let is_selected = date == selected;
                 let cell = build_cell(
@@ -339,8 +336,14 @@ impl CalendarView {
         }
         let s = self.state.borrow();
         self.day_label.set_text(&calendar::i18n::format_date(s.selected));
-        let appts: Vec<Appointment> =
-            self.store.borrow().on_date(s.selected).into_iter().cloned().collect();
+        let appts: Vec<Appointment> = self
+            .ctx
+            .store()
+            .borrow()
+            .on_date(s.selected)
+            .into_iter()
+            .cloned()
+            .collect();
         for a in &appts {
             let row = build_appt_row(a);
             let uid = a.uid.clone();
@@ -350,9 +353,9 @@ impl CalendarView {
             // per row does not leak.
             let ev = gtk::GestureClick::new();
             ev.connect_pressed(move |_, _, _, _| {
-                let appt_opt = this.store.borrow().get(&uid).cloned();
+                let appt_opt = this.ctx.store().borrow().get(&uid).cloned();
                 if let Some(appt) = appt_opt {
-                    (this.on_edit)(&appt);
+                    this.ctx.open_edit(&appt);
                 }
             });
             row.add_controller(ev);
@@ -373,7 +376,7 @@ impl CalendarView {
             let this = self.clone();
             let selected = s.selected;
             add_btn.connect_clicked(move |_| {
-                (this.on_new)(selected);
+                this.ctx.open_new(selected);
             });
             empty_box.append(&add_btn);
 

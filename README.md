@@ -160,7 +160,10 @@ shadowdate/
 ├── 🗂️  src/
 │   ├── main.rs            # app bootstrap, window, headerbar
 │   ├── model.rs           # Appointment + Store
-│   ├── io_ics.rs          # .ics parse / serialize / import / export
+│   ├── ical_import.rs     # .ics parse / import (RRULE expansion)
+│   ├── ical_export.rs     # .ics serialize / export
+│   ├── rrule.rs           # RRULE expansion engine
+│   ├── store_io.rs        # atomic save / load / backup / merge
 │   ├── calendar_view.rs   # month grid + day list
 │   ├── form_dialog.rs     # create / edit / delete dialog
 │   ├── service_settings.rs # ⚙️ reminders config dialog

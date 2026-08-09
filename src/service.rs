@@ -93,7 +93,7 @@ impl ServiceConfig {
     /// Write the config to `path` (atomically, like the `.ics` store).
     pub fn save(&self, path: &Path) -> Result<()> {
         let data = toml::to_string(self).context("serializing service config")?;
-        crate::io_ics::write_atomic(path, &data)
+        crate::store_io::write_atomic(path, &data)
     }
 }
 

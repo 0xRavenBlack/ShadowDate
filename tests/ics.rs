@@ -1,5 +1,7 @@
-use calendar::io_ics;
+use calendar::ical_export::store_to_ics;
+use calendar::ical_import::{import_ics, import_ics_with_warnings};
 use calendar::model::{make_datetime, Appointment, Store};
+use calendar::store_io::{backup_corrupt, load_store, save_store};
 use chrono::NaiveDate;
 
 #[test]
@@ -16,7 +18,7 @@ fn roundtrip_ics() {
     );
     store.insert(a);
 
-    let ics = io_ics::store_to_ics(&store, "-//test//EN");
+    let ics = store_to_ics(&store, "-//test//EN");
     assert!(ics.contains("BEGIN:VCALENDAR"));
     assert!(ics.contains("UID:test-uid-1"));
     assert!(ics.contains("SUMMARY:Dentist"));
@@ -24,7 +26,7 @@ fn roundtrip_ics() {
     // parse it back
     let path = std::env::temp_dir().join("cal_test_roundtrip.ics");
     std::fs::write(&path, &ics).unwrap();
-    let imported = io_ics::import_ics(&path).unwrap();
+    let imported = import_ics(&path).unwrap();
     assert_eq!(imported.items().len(), 1);
     let back = &imported.items()[0];
     assert_eq!(back.uid, "test-uid-1");
@@ -37,7 +39,7 @@ fn roundtrip_ics() {
 #[test]
 fn load_nonexistent_is_empty() {
     let p = std::env::temp_dir().join("cal_does_not_exist_xyz.ics");
-    let (store, warnings) = io_ics::load_store(&p).unwrap();
+    let (store, warnings) = load_store(&p).unwrap();
     assert!(store.items().is_empty());
     assert!(warnings.is_empty());
 }
@@ -58,7 +60,7 @@ END:VEVENT\r\n
 END:VCALENDAR\r\n";
     let path = std::env::temp_dir().join("cal_test_allday.ics");
     std::fs::write(&path, ics).unwrap();
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 1);
     let a = &store.items()[0];
     assert!(a.all_day);
@@ -87,14 +89,14 @@ END:VEVENT\r\n
 END:VCALENDAR\r\n";
     let path = std::env::temp_dir().join("cal_test_allday_single.ics");
     std::fs::write(&path, ics).unwrap();
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     let a = &store.items()[0];
     assert!(a.all_day);
     let d = |y, m, day| chrono::NaiveDate::from_ymd_opt(y, m, day).unwrap();
     assert_eq!(store.on_date(d(2026, 9, 10)).len(), 1);
     assert_eq!(store.on_date(d(2026, 9, 11)).len(), 0);
     // Round-trips to an exclusive DTEND on the next day.
-    let out = io_ics::store_to_ics(&store, "-//test//EN");
+    let out = store_to_ics(&store, "-//test//EN");
     assert!(out.contains("DTEND;VALUE=DATE:20260911"));
     std::fs::remove_file(&path).ok();
 }
@@ -120,8 +122,8 @@ fn text_escaping_roundtrips() {
         false,
     ));
     let path = std::env::temp_dir().join("cal_test_escape.ics");
-    io_ics::save_store(&store, &path).unwrap();
-    let loaded = io_ics::import_ics(&path).unwrap();
+    save_store(&store, &path).unwrap();
+    let loaded = import_ics(&path).unwrap();
     let a = &loaded.items()[0];
     assert_eq!(a.title, "a;b,c\\d");
     assert_eq!(a.description, "line1\nline2;x,y\\z");
@@ -141,7 +143,7 @@ BEGIN:VEVENT\r\nUID:daily-1\r\nSUMMARY:Standup\r\n\
 DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
 RRULE:FREQ=DAILY;COUNT=3\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_daily.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 3, "daily COUNT=3 should yield 3 occurrences");
     assert_eq!(store.on_date(d(2026, 8, 5)).len(), 1);
     assert_eq!(store.on_date(d(2026, 8, 6)).len(), 1);
@@ -160,7 +162,7 @@ BEGIN:VEVENT\r\nUID:weekly-1\r\nSUMMARY:Class\r\n\
 DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
 RRULE:FREQ=WEEKLY;COUNT=6;BYDAY=MO,WE,FR\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_weekly.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     // 2 weeks * 3 days = 6 occurrences.
     assert_eq!(store.items().len(), 6);
     // First week: Wed 5, Fri 7. Second: Mon 10, Wed 12, Fri 14.
@@ -182,7 +184,7 @@ BEGIN:VEVENT\r\nUID:monthly-1\r\nSUMMARY:Pay\r\n\
 DTSTART;VALUE=DATE:20260115\r\nDTEND;VALUE=DATE:20260116\r\n\
 RRULE:FREQ=MONTHLY;COUNT=3;BYMONTHDAY=15\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_monthly.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 3);
     assert_eq!(store.on_date(d(2026, 1, 15)).len(), 1);
     assert_eq!(store.on_date(d(2026, 2, 15)).len(), 1);
@@ -198,7 +200,7 @@ BEGIN:VEVENT\r\nUID:yearly-1\r\nSUMMARY:Birthday\r\n\
 DTSTART;VALUE=DATE:20260301\r\nDTEND;VALUE=DATE:20260302\r\n\
 RRULE:FREQ=YEARLY;COUNT=2\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_yearly.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 2);
     assert_eq!(store.on_date(d(2026, 3, 1)).len(), 1);
     assert_eq!(store.on_date(d(2027, 3, 1)).len(), 1);
@@ -213,7 +215,7 @@ BEGIN:VEVENT\r\nUID:until-1\r\nSUMMARY:Thing\r\n\
 DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
 RRULE:FREQ=DAILY;UNTIL=20260807\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_until.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 3);
     assert_eq!(store.on_date(d(2026, 8, 7)).len(), 1);
     assert_eq!(store.on_date(d(2026, 8, 8)).len(), 0);
@@ -232,7 +234,7 @@ DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
 RRULE:FREQ=WEEKLY;COUNT=3;BYDAY=MO,WE,FR\r\n\
 EXDATE:20260807\r\nRDATE:20260818\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_weekly_exdate.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     // COUNT=3 picks 5, 7, 10; EXDATE drops 7; RDATE adds 18 -> 5, 10, 18.
     assert_eq!(store.items().len(), 3);
     assert_eq!(store.on_date(d(2026, 8, 5)).len(), 1);
@@ -250,7 +252,7 @@ DTSTART;VALUE=DATE:20260115\r\nDTEND;VALUE=DATE:20260116\r\n\
 RRULE:FREQ=MONTHLY;COUNT=3;BYMONTHDAY=15\r\n\
 EXDATE:20260215\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_monthly_exdate.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     // COUNT=3 picks 15 Jan/Feb/Mar; EXDATE drops 15 Feb -> Jan, Mar.
     assert_eq!(store.items().len(), 2);
     assert_eq!(store.on_date(d(2026, 1, 15)).len(), 1);
@@ -267,7 +269,7 @@ DTSTART;VALUE=DATE:20260301\r\nDTEND;VALUE=DATE:20260302\r\n\
 RRULE:FREQ=YEARLY;COUNT=1\r\n\
 RDATE:20270601\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_yearly_rdate.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     // COUNT=1 stops after 2026-03-01; RDATE appends 2027-06-01.
     assert_eq!(store.items().len(), 2);
     assert_eq!(store.on_date(d(2026, 3, 1)).len(), 1);
@@ -285,7 +287,7 @@ BEGIN:VEVENT\r\nUID:wk-boundary\r\nSUMMARY:Wk\r\n\
 DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
 RRULE:FREQ=WEEKLY;BYDAY=FR,MO;UNTIL=20260810\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_rrule_until_boundary.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 2);
     assert_eq!(store.on_date(d(2026, 8, 7)).len(), 1);  // FR before UNTIL
     assert_eq!(store.on_date(d(2026, 8, 10)).len(), 1); // MO on UNTIL
@@ -303,7 +305,7 @@ DTSTART;TZID=America/New_York:20260805T090000\r\n\
 DTEND;TZID=America/New_York:20260805T100000\r\n\
 END:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_tzid.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 1);
     let a = &store.items()[0];
     // The stored local datetime must equal the NY wall time converted to local.
@@ -320,7 +322,7 @@ BEGIN:VEVENT\r\nUID:series-1\r\nSUMMARY:Rep\r\n\
 DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
 RRULE:FREQ=DAILY;COUNT=3\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_series_del.ics", ics);
-    let mut store = io_ics::import_ics(&path).unwrap();
+    let mut store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 3);
     store.remove_series("series-1");
     assert!(store.items().is_empty());
@@ -337,7 +339,7 @@ DTSTART:20260805T090000\r\nDTEND:20260805T100000\r\nEND:VEVENT\r\n\
 BEGIN:VEVENT\r\nUID:bad-1\r\nSUMMARY:Broken\r\n\
 DTSTART:not-a-date\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_bad_event.ics", ics);
-    let (store, warnings) = io_ics::import_ics_with_warnings(&path).unwrap();
+    let (store, warnings) = import_ics_with_warnings(&path).unwrap();
     assert_eq!(store.items().len(), 1);
     assert_eq!(store.items()[0].uid, "good-1");
     assert!(!warnings.is_empty());
@@ -354,7 +356,7 @@ DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\nEND:VEVENT\r\n\
 BEGIN:VEVENT\r\nUID:broken\r\nDTSTART:garbage\r\nEND:VEVENT\r\n\
 END:VCALENDAR\r\n";
     let path = write_ics("cal_test_load_tolerant.ics", ics);
-    let (store, warnings) = io_ics::load_store(&path).unwrap();
+    let (store, warnings) = load_store(&path).unwrap();
     assert_eq!(store.items().len(), 1);
     assert_eq!(store.items()[0].uid, "ok-1");
     assert!(!warnings.is_empty());
@@ -367,7 +369,7 @@ fn backup_corrupt_preserves_unreadable_file() {
     // bytes up first so the data survives the next save.
     let p = std::env::temp_dir().join("cal_backup_test.ics");
     std::fs::write(&p, b"some \xff\xfe binary-ish garbage").unwrap();
-    let backup = io_ics::backup_corrupt(&p).unwrap();
+    let backup = backup_corrupt(&p).unwrap();
     assert!(backup.exists());
     assert_ne!(backup, p);
     std::fs::remove_file(&p).ok();
@@ -391,13 +393,13 @@ fn long_text_survives_line_folding_roundtrip() {
         false,
     ));
     let path = std::env::temp_dir().join("cal_test_fold.ics");
-    io_ics::save_store(&store, &path).unwrap();
+    save_store(&store, &path).unwrap();
     // Physical lines must not exceed 75 octets + CRLF.
     let raw = std::fs::read_to_string(&path).unwrap();
     for line in raw.split("\r\n") {
         assert!(line.len() <= 75, "unfolded line too long: {:?}", line);
     }
-    let loaded = io_ics::import_ics(&path).unwrap();
+    let loaded = import_ics(&path).unwrap();
     let a = &loaded.items()[0];
     assert_eq!(a.title, long_title);
     assert!(a.description.starts_with("Description with a very long body"));
@@ -415,11 +417,11 @@ BEGIN:VEVENT\r\nUID:series-rt\r\nSUMMARY:Daily\r\n\
 DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
 RRULE:FREQ=DAILY;COUNT=3\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_series_rt.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 3);
     assert!(store.items().iter().all(|a| a.series_uid == "series-rt"));
-    io_ics::save_store(&store, &path).unwrap();
-    let reloaded = io_ics::import_ics(&path).unwrap();
+    save_store(&store, &path).unwrap();
+    let reloaded = import_ics(&path).unwrap();
     assert_eq!(reloaded.items().len(), 3);
     // Every occurrence still belongs to the same series, not independent events.
     let uids: Vec<&str> = reloaded.items().iter().map(|a| a.uid.as_str()).collect();
@@ -443,7 +445,7 @@ DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\nEND:VEVENT\r\nEND:VC
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(ics.as_bytes());
     std::fs::write(&path, &bytes).unwrap();
-    let (store, warnings) = io_ics::import_ics_with_warnings(&path).unwrap();
+    let (store, warnings) = import_ics_with_warnings(&path).unwrap();
     assert_eq!(store.items().len(), 1);
     assert_eq!(store.items()[0].uid, "bom-1");
     assert!(warnings.is_empty());
@@ -460,7 +462,7 @@ BEGIN:VEVENT\r\nUID:dec-last\r\nSUMMARY:NewYearsEve\r\n\
 DTSTART;VALUE=DATE:20261201\r\nDTEND;VALUE=DATE:20261202\r\n\
 RRULE:FREQ=MONTHLY;COUNT=1;BYMONTH=12;BYMONTHDAY=-1\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let path = write_ics("cal_test_dec_last.ics", ics);
-    let store = io_ics::import_ics(&path).unwrap();
+    let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 1);
     assert_eq!(store.on_date(d(2026, 12, 31)).len(), 1);
     assert_eq!(store.on_date(d(2026, 12, 30)).len(), 0);

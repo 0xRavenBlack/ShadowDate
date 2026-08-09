@@ -12,7 +12,7 @@
 //! Scheduling policy lives in `calendar::service` (pure functions, unit-tested);
 //! this binary only wires them to the clock, the file system, and D-Bus.
 
-use calendar::io_ics;
+use calendar::ical_import;
 use calendar::model::Store;
 use calendar::paths;
 use calendar::service::{self, ServiceConfig, APP_ID, SERVICE_NAME};
@@ -158,7 +158,7 @@ fn reload_store(d: &mut Daemon) {
     if mtime.is_none() {
         return;
     }
-    match io_ics::import_ics_with_warnings(&path) {
+    match ical_import::import_ics_with_warnings(&path) {
         Ok((store, warnings)) if warnings.is_empty() => d.store = store,
         Ok((_, warnings)) => eprintln!(
             "warning: reloading {} (keeping previous store): {} entries skipped",

@@ -23,10 +23,14 @@ Cargo.toml              # [[bin]] shadowdate + [[bin]] shadowdate-service + [lib
                         # deps: gtk4 (0.11), glib/gio (0.22), ical, chrono, chrono-tz, uuid,
                         # anyhow, resvg, serde (derive), toml
 src/
-  lib.rs                # pub mod model; pub mod io_ics; pub mod i18n; pub mod paths; pub mod service
-  main.rs               # app bootstrap, window, headerbar, file choosers
+  lib.rs                # pub mod model; pub mod ical_import; pub mod ical_export;
+                        # pub mod rrule; pub mod store_io; pub mod i18n; pub mod paths; pub mod service
+  main.rs               # app bootstrap, window, headerbar, file choosers, AppContext
   model.rs              # Appointment struct + in-memory Store (keyed by UID)
-  io_ics.rs             # parse/serialize .ics, import/export, load/save, merge, write_atomic
+  ical_import.rs        # .ics parsing / import (tolerant), RRULE wiring, EXDATE/RDATE
+  ical_export.rs        # .ics serialization / export, line folding, PRODID
+  rrule.rs              # RRULE expansion engine (FREQ/INTERVAL/COUNT/UNTIL/BYDAY/…)
+  store_io.rs           # atomic load/save/write_atomic, backup_corrupt, merge_store
   calendar_view.rs      # month grid (dots + keyboard nav), day list, background portrait
   form_dialog.rs        # create/edit/delete appointment dialog (620x520, non-resizable, fits the window); Cancel/Save live in the form (right-aligned), time uses a SpinButton grid, Delete asks for confirmation
   service_settings.rs   # ⚙️ reminders config dialog (lead time, all-day time, service start/stop/test)
@@ -222,8 +226,8 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
 ## Common tasks
 
 - Add a field to appointments: update `Appointment` in `model.rs`, the form in
-  `form_dialog.rs`, ics mapping in `io_ics.rs`, and the row/chip rendering in
-  `calendar_view.rs`.
+  `form_dialog.rs`, ics mapping in `ical_import.rs` / `ical_export.rs`, and the
+  row/chip rendering in `calendar_view.rs`.
 - Change theme: edit `resources/style.css` (loaded at startup in `load_css`).
 - Add a language: add a column to every `match` in `i18n.rs` (and the two lookup
   tables in `format_date`/`format_month_year`), then extend `Lang` + `lang_index`.
