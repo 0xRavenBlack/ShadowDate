@@ -1,5 +1,5 @@
 use crate::ui::{section_box, time_spin};
-use calendar::model::{make_datetime, Appointment};
+use calendar::model::{make_datetime, Appointment, NewAppointment};
 use chrono::{Datelike, NaiveDate, Timelike};
 use gtk::prelude::*;
 use gtk::{
@@ -333,28 +333,23 @@ fn build_appointment(
         end = start + chrono::TimeDelta::hours(1);
     }
 
-    let appt = if let Some(ex) = existing {
-        Appointment::with_uid(
-            ex.uid.clone(),
-            title_text,
-            f.desc.text().to_string(),
-            f.loc.text().to_string(),
-            start,
-            end,
-            all,
-        )
-    } else {
-        Appointment::with_uid(
-            uuid::Uuid::new_v4().to_string(),
-            title_text,
-            f.desc.text().to_string(),
-            f.loc.text().to_string(),
-            start,
-            end,
-            all,
-        )
+    let (uid, series_uid) = match existing {
+        Some(ex) => (ex.uid.clone(), ex.uid.clone()),
+        None => {
+            let uid = uuid::Uuid::new_v4().to_string();
+            (uid.clone(), uid)
+        }
     };
-    Ok(appt)
+    Ok(Appointment::build(NewAppointment {
+        uid,
+        series_uid,
+        title: title_text,
+        description: f.desc.text().to_string(),
+        location: f.loc.text().to_string(),
+        start,
+        end,
+        all_day: all,
+    }))
 }
 
 fn row_widget(label: &str, w: &impl IsA<gtk::Widget>) -> gtk::Box {

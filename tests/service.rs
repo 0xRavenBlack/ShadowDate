@@ -1,4 +1,4 @@
-use calendar::model::{make_datetime, Appointment, Store};
+use calendar::model::{make_datetime, Appointment, NewAppointment, Store};
 use calendar::service::{pending_reminders, prune_fired, reminder_time, ServiceConfig};
 use chrono::{DateTime, Local, NaiveDate, TimeDelta};
 use std::collections::HashSet;
@@ -8,15 +8,17 @@ fn d(y: i32, m: u32, day: u32) -> NaiveDate {
 }
 
 fn timed(uid: &str, start: (u32, u32), dur_h: i64, all_day: bool) -> Appointment {
-    Appointment::with_uid(
-        uid.to_string(),
-        "Event".to_string(),
-        String::new(),
-        String::new(),
-        make_datetime(d(2026, 8, 5), start.0, start.1),
-        make_datetime(d(2026, 8, 5), start.0 + dur_h as u32, start.1),
+    let uid = uid.to_string();
+    Appointment::build(NewAppointment {
+        series_uid: uid.clone(),
+        uid,
+        title: "Event".to_string(),
+        description: String::new(),
+        location: String::new(),
+        start: make_datetime(d(2026, 8, 5), start.0, start.1),
+        end: make_datetime(d(2026, 8, 5), start.0 + dur_h as u32, start.1),
         all_day,
-    )
+    })
 }
 
 fn cfg(lead: u32) -> ServiceConfig {
@@ -98,15 +100,16 @@ fn pending_reminders_skips_future_reminders() {
 fn pending_reminders_allday_fires_once_on_start_date() {
     // All-day event covering 5..8 Aug (exclusive end = 8 Aug), like the ics
     // importer produces for a multi-day event.
-    let appt = Appointment::with_uid(
-        "ad1".to_string(),
-        "Conference".to_string(),
-        String::new(),
-        String::new(),
-        make_datetime(d(2026, 8, 5), 0, 0),
-        make_datetime(d(2026, 8, 8), 0, 0),
-        true,
-    );
+    let appt = Appointment::build(NewAppointment {
+        uid: "ad1".to_string(),
+        series_uid: "ad1".to_string(),
+        title: "Conference".to_string(),
+        description: String::new(),
+        location: String::new(),
+        start: make_datetime(d(2026, 8, 5), 0, 0),
+        end: make_datetime(d(2026, 8, 8), 0, 0),
+        all_day: true,
+    });
     let mut store = Store::new();
     store.insert(appt);
     let fired = HashSet::new();
@@ -129,24 +132,26 @@ fn pending_reminders_allday_fires_once_on_start_date() {
 fn pending_reminders_sorted_by_start() {
     // Both events are still running at 10:30 and both reminders are due.
     let mut store = Store::new();
-    store.insert(Appointment::with_uid(
-        "later".to_string(),
-        "Event".to_string(),
-        String::new(),
-        String::new(),
-        make_datetime(d(2026, 8, 5), 10, 0),
-        make_datetime(d(2026, 8, 5), 11, 0),
-        false,
-    ));
-    store.insert(Appointment::with_uid(
-        "early".to_string(),
-        "Event".to_string(),
-        String::new(),
-        String::new(),
-        make_datetime(d(2026, 8, 5), 9, 0),
-        make_datetime(d(2026, 8, 5), 12, 0),
-        false,
-    ));
+    store.insert(Appointment::build(NewAppointment {
+        uid: "later".to_string(),
+        series_uid: "later".to_string(),
+        title: "Event".to_string(),
+        description: String::new(),
+        location: String::new(),
+        start: make_datetime(d(2026, 8, 5), 10, 0),
+        end: make_datetime(d(2026, 8, 5), 11, 0),
+        all_day: false,
+    }));
+    store.insert(Appointment::build(NewAppointment {
+        uid: "early".to_string(),
+        series_uid: "early".to_string(),
+        title: "Event".to_string(),
+        description: String::new(),
+        location: String::new(),
+        start: make_datetime(d(2026, 8, 5), 9, 0),
+        end: make_datetime(d(2026, 8, 5), 12, 0),
+        all_day: false,
+    }));
     let now = make_datetime(d(2026, 8, 5), 10, 30);
     let fired = HashSet::new();
     let pending = pending_reminders(&store, &cfg(0), now, &fired);
@@ -168,15 +173,16 @@ fn edited_event_refires_with_new_reminder_time() {
     fired.insert(key);
 
     // The user edits the appointment to a later start; same UID, new time.
-    let edited = Appointment::with_uid(
-        "same-uid".to_string(),
-        "Event".to_string(),
-        String::new(),
-        String::new(),
-        make_datetime(d(2026, 8, 5), 11, 0),
-        make_datetime(d(2026, 8, 5), 12, 0),
-        false,
-    );
+    let edited = Appointment::build(NewAppointment {
+        uid: "same-uid".to_string(),
+        series_uid: "same-uid".to_string(),
+        title: "Event".to_string(),
+        description: String::new(),
+        location: String::new(),
+        start: make_datetime(d(2026, 8, 5), 11, 0),
+        end: make_datetime(d(2026, 8, 5), 12, 0),
+        all_day: false,
+    });
     let mut store = Store::new();
     store.insert(edited.clone());
     let now = make_datetime(d(2026, 8, 5), 10, 50);
@@ -232,7 +238,11 @@ fn config_clamps_out_of_range_values() {
     )
     .unwrap();
     let cfg = ServiceConfig::load(&p);
-    assert_eq!(cfg.reminders.lead_min, 24 * 60);
+    assert_eq!(
+        cfg.reminders.lead_min,
+        calendar::service::MAX_LEAD_MIN,
+        "lead must clamp to the shared MAX_LEAD_MIN contract"
+    );
     assert_eq!(cfg.reminders.all_day_hour, 23);
     assert_eq!(cfg.reminders.all_day_minute, 59);
     std::fs::remove_file(&p).ok();

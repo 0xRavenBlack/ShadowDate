@@ -1,21 +1,22 @@
 use calendar::ical_export::store_to_ics;
 use calendar::ical_import::{import_ics, import_ics_with_warnings};
-use calendar::model::{make_datetime, Appointment, Store};
+use calendar::model::{make_datetime, Appointment, NewAppointment, Store};
 use calendar::store_io::{backup_corrupt, load_store, save_store};
 use chrono::NaiveDate;
 
 #[test]
 fn roundtrip_ics() {
     let mut store = Store::new();
-    let a = Appointment::with_uid(
-        "test-uid-1".to_string(),
-        "Dentist".to_string(),
-        "Checkup".to_string(),
-        "Clinic".to_string(),
-        make_datetime(chrono::NaiveDate::from_ymd_opt(2026, 8, 5).unwrap(), 9, 30),
-        make_datetime(chrono::NaiveDate::from_ymd_opt(2026, 8, 5).unwrap(), 10, 0),
-        false,
-    );
+    let a = Appointment::build(NewAppointment {
+        uid: "test-uid-1".to_string(),
+        series_uid: "test-uid-1".to_string(),
+        title: "Dentist".to_string(),
+        description: "Checkup".to_string(),
+        location: "Clinic".to_string(),
+        start: make_datetime(chrono::NaiveDate::from_ymd_opt(2026, 8, 5).unwrap(), 9, 30),
+        end: make_datetime(chrono::NaiveDate::from_ymd_opt(2026, 8, 5).unwrap(), 10, 0),
+        all_day: false,
+    });
     store.insert(a);
 
     let ics = store_to_ics(&store, "-//test//EN");
@@ -112,15 +113,16 @@ fn text_escaping_roundtrips() {
     // Special characters in SUMMARY/DESCRIPTION/LOCATION must survive a
     // save -> load cycle: backslash, semicolon, comma, and newlines.
     let mut store = Store::new();
-    store.insert(Appointment::with_uid(
-        "escape-1".to_string(),
-        "a;b,c\\d".to_string(),
-        "line1\nline2;x,y\\z".to_string(),
-        "Rome, Italy;near\\colosseum".to_string(),
-        make_datetime(d(2026, 8, 5), 9, 30),
-        make_datetime(d(2026, 8, 5), 10, 0),
-        false,
-    ));
+    store.insert(Appointment::build(NewAppointment {
+        uid: "escape-1".to_string(),
+        series_uid: "escape-1".to_string(),
+        title: "a;b,c\\d".to_string(),
+        description: "line1\nline2;x,y\\z".to_string(),
+        location: "Rome, Italy;near\\colosseum".to_string(),
+        start: make_datetime(d(2026, 8, 5), 9, 30),
+        end: make_datetime(d(2026, 8, 5), 10, 0),
+        all_day: false,
+    }));
     let path = std::env::temp_dir().join("cal_test_escape.ics");
     save_store(&store, &path).unwrap();
     let loaded = import_ics(&path).unwrap();
@@ -383,15 +385,16 @@ fn long_text_survives_line_folding_roundtrip() {
     let long_title = "A suspiciously lengthy meeting title that deliberately exceeds the seventy-five octet line limit for iCalendar content lines, on purpose".to_string();
     assert!(long_title.len() > 75);
     let mut store = Store::new();
-    store.insert(Appointment::with_uid(
-        "fold-1".to_string(),
-        long_title.clone(),
-        format!("Description with a very long body that also keeps going far past the fold threshold to exercise the continuation path thoroughly: {}", "y".repeat(120)),
-        "Location with an extremely long address that crosses the seventy-five octet boundary as well, stretching well beyond it".to_string(),
-        make_datetime(d(2026, 8, 5), 9, 30),
-        make_datetime(d(2026, 8, 5), 10, 0),
-        false,
-    ));
+    store.insert(Appointment::build(NewAppointment {
+        uid: "fold-1".to_string(),
+        series_uid: "fold-1".to_string(),
+        title: long_title.clone(),
+        description: format!("Description with a very long body that also keeps going far past the fold threshold to exercise the continuation path thoroughly: {}", "y".repeat(120)),
+        location: "Location with an extremely long address that crosses the seventy-five octet boundary as well, stretching well beyond it".to_string(),
+        start: make_datetime(d(2026, 8, 5), 9, 30),
+        end: make_datetime(d(2026, 8, 5), 10, 0),
+        all_day: false,
+    }));
     let path = std::env::temp_dir().join("cal_test_fold.ics");
     save_store(&store, &path).unwrap();
     // Physical lines must not exceed 75 octets + CRLF.

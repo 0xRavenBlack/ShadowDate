@@ -263,7 +263,7 @@ impl CalendarView {
             let s = self.state.borrow();
             (s.view_year, s.view_month, s.selected)
         };
-        let month_name = calendar::i18n::format_month_year(view_year, (view_month - 1) as usize);
+        let month_name = calendar::i18n::format_month_year(view_year, view_month);
         self.month_label.set_text(&month_name);
 
         let weekdays = calendar::i18n::weekday_abbrevs();
@@ -293,14 +293,7 @@ impl CalendarView {
                 let offset = cell_offset(first_weekday, cell_index);
                 let date = first + chrono::TimeDelta::days(offset as i64);
                 let other_month = date.year() != view_year || date.month() != view_month;
-                let appts: Vec<Appointment> = self
-                    .ctx
-                    .store()
-                    .borrow()
-                    .on_date(date)
-                    .into_iter()
-                    .cloned()
-                    .collect();
+                let appts: Vec<Appointment> = self.ctx.store().borrow().on_date(date);
                 let is_today = date == t;
                 let is_selected = date == selected;
                 let cell = build_cell(
@@ -336,14 +329,7 @@ impl CalendarView {
         }
         let s = self.state.borrow();
         self.day_label.set_text(&calendar::i18n::format_date(s.selected));
-        let appts: Vec<Appointment> = self
-            .ctx
-            .store()
-            .borrow()
-            .on_date(s.selected)
-            .into_iter()
-            .cloned()
-            .collect();
+        let appts: Vec<Appointment> = self.ctx.store().borrow().on_date(s.selected);
         for a in &appts {
             let row = build_appt_row(a);
             let uid = a.uid.clone();

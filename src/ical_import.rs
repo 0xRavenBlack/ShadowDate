@@ -192,7 +192,7 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
 
     // Common metadata shared by every occurrence of the series.
     let mk = |occ_uid: String, s: DateTime<Local>, e: DateTime<Local>| {
-        Appointment::with_uid_series(crate::model::NewAppointment {
+        Appointment::build(crate::model::NewAppointment {
             uid: occ_uid,
             series_uid: series_uid.clone(),
             title: title.clone(),

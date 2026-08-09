@@ -7,7 +7,7 @@
 use crate::ui::{section_box, show_error, time_spin};
 use calendar::i18n;
 use calendar::paths;
-use calendar::service::{self, ServiceConfig, SERVICE_NAME};
+use calendar::service::{self, ServiceConfig, MAX_LEAD_MIN, SERVICE_NAME};
 use gtk::prelude::*;
 use gtk::{Box, Button, Dialog, Label, ResponseType, SpinButton};
 use std::cell::RefCell;
@@ -47,11 +47,11 @@ pub fn run_service_settings(parent: &impl IsA<gtk::Window>) {
     form.append(&rem_heading);
 
     let rem_section = section_box();
-    let lead_spin = SpinButton::with_range(0.0, 180.0, 1.0);
+    let lead_spin = SpinButton::with_range(0.0, MAX_LEAD_MIN as f64, 1.0);
     lead_spin.set_value(cfg.borrow().reminders.lead_min as f64);
     lead_spin.set_digits(0);
     lead_spin.set_numeric(true);
-    lead_spin.set_width_chars(3);
+    lead_spin.set_width_chars(4);
     let lead_row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     let lead_lbl = Label::new(Some(i18n::t("lead_time")));
     lead_lbl.add_css_class("form-label");

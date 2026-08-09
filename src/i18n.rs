@@ -490,9 +490,11 @@ fn lang_index() -> usize {
     }
 }
 
-/// Localized "Month YYYY" title for the grid header.
-pub fn format_month_year(year: i32, month0: usize) -> String {
-    let m = full_month(month0);
+/// Localized "Month YYYY" title for the grid header. `month` is 1-based
+/// (1 = January) to match `NaiveDate::month`, avoiding the off-by-one trap of a
+/// 0-based argument.
+pub fn format_month_year(year: i32, month: u32) -> String {
+    let m = full_month((month - 1) as usize);
     match lang() {
         Lang::Zh | Lang::Ja => format!("{}年 {}", year, m),
         _ => format!("{} {}", m, year),

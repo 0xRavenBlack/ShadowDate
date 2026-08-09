@@ -33,6 +33,11 @@ const NOTIFY_PATH: &str = "/org/freedesktop/Notifications";
 /// How long a fired reminder stays in the dedupe set before being pruned.
 const FIRED_RETENTION: TimeDelta = TimeDelta::hours(6);
 
+/// Maximum reminder lead time. A lead of more than a day warns absurdly early.
+/// Single source of truth shared by the settings dialog spin range and the
+/// config sanitizer, so the UI and the file-backed contract can't drift.
+pub const MAX_LEAD_MIN: u32 = 24 * 60;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServiceConfig {
     #[serde(default)]
@@ -104,8 +109,8 @@ impl ServiceConfig {
 fn sanitize_config(mut cfg: ServiceConfig) -> ServiceConfig {
     cfg.reminders.all_day_hour = cfg.reminders.all_day_hour.min(23);
     cfg.reminders.all_day_minute = cfg.reminders.all_day_minute.min(59);
-    // A lead of more than a day warns absurdly early; cap it to 24 hours.
-    cfg.reminders.lead_min = cfg.reminders.lead_min.min(24 * 60);
+    // A lead of more than a day warns absurdly early; cap it to `MAX_LEAD_MIN`.
+    cfg.reminders.lead_min = cfg.reminders.lead_min.min(MAX_LEAD_MIN);
     cfg
 }
 

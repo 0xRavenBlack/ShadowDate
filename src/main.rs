@@ -48,11 +48,12 @@ fn main() -> gtk::glib::ExitCode {
 /// `APP_ID` begins with a digit, so it is not a valid GApplication id and the
 /// `gtk::Application` in `main` never registers on the session bus — this
 /// `/proc` pre-check is the app's only single-instance guard. The second
-/// process exits right away, before any window or GTK work happens.
+/// process exits right away (with a nonzero code, since a launch was denied),
+/// before any window or GTK work happens.
 fn bail_if_already_running() {
     if another_instance_running() {
         eprintln!("shadowdate: another instance is already running; quitting");
-        std::process::exit(0);
+        std::process::exit(1);
     }
 }
 

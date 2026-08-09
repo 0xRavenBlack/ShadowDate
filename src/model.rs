@@ -19,8 +19,9 @@ pub struct Appointment {
     pub color_index: usize,
 }
 
-/// Fields needed to construct an `Appointment`. Used by `Appointment::build`
-/// to avoid an excessively long argument list.
+/// Named fields needed to construct an `Appointment`, so callers never thread
+/// seven positional arguments. `series_uid` is the base event's UID for
+/// recurring occurrences (equal to `uid` for single events).
 pub struct NewAppointment {
     pub uid: String,
     pub series_uid: String,
@@ -33,31 +34,11 @@ pub struct NewAppointment {
 }
 
 impl Appointment {
-    pub fn with_uid(
-        uid: String,
-        title: String,
-        description: String,
-        location: String,
-        start: DateTime<Local>,
-        end: DateTime<Local>,
-        all_day: bool,
-    ) -> Self {
-        Self::with_uid_series(NewAppointment {
-            series_uid: uid.clone(),
-            uid,
-            title,
-            description,
-            location,
-            start,
-            end,
-            all_day,
-        })
-    }
-
-    /// Build an appointment that belongs to a recurring series. `series_uid`
-    /// must be the base event's UID so the whole series can be edited/deleted
-    /// together; `uid` should be unique per occurrence.
-    pub fn with_uid_series(n: NewAppointment) -> Self {
+    /// Build an appointment from its named fields. `series_uid` must be the
+    /// base event's UID so the whole series can be edited/deleted together;
+    /// `uid` should be unique per occurrence (equal to `series_uid` for single
+    /// events). The color is derived from `series_uid`.
+    pub fn build(n: NewAppointment) -> Self {
         let color_index = color_for_uid(&n.series_uid);
         Self {
             uid: n.uid,
@@ -140,8 +121,8 @@ impl Store {
         self.index.get(uid).map(|&i| &self.items[i])
     }
 
-    pub fn on_date(&self, date: NaiveDate) -> Vec<&Appointment> {
-        let mut v: Vec<&Appointment> = self
+    pub fn on_date(&self, date: NaiveDate) -> Vec<Appointment> {
+        let mut v: Vec<Appointment> = self
             .items
             .iter()
             .filter(|a| {
@@ -155,6 +136,7 @@ impl Store {
                     date >= sd && date <= ed
                 }
             })
+            .cloned()
             .collect();
         v.sort_by_key(|a| a.start);
         v
