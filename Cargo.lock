@@ -109,23 +109,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "calendar"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "chrono-tz",
- "gio",
- "glib",
- "gtk4",
- "ical",
- "resvg",
- "serde",
- "toml",
- "uuid",
-]
-
-[[package]]
 name = "cc"
 version = "1.2.67"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1014,6 +997,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
 dependencies = [
  "serde_core",
+]
+
+[[package]]
+name = "shadowdate"
+version = "0.6.5"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "chrono-tz",
+ "gio",
+ "glib",
+ "gtk4",
+ "ical",
+ "resvg",
+ "serde",
+ "toml",
+ "uuid",
 ]
 
 [[package]]

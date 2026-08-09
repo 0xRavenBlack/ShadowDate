@@ -1,5 +1,5 @@
 use crate::AppContext;
-use calendar::model::{today, Appointment};
+use shadowdate::model::{today, Appointment};
 use chrono::{Datelike, NaiveDate};
 use gtk::prelude::*;
 use gtk::{Box, Button, Grid, Label, ListBox, ListBoxRow, ScrolledWindow};
@@ -114,14 +114,14 @@ impl CalendarView {
 
         let prev_btn = Button::with_label("‹");
         prev_btn.add_css_class("nav-button");
-        prev_btn.set_tooltip_text(Some(calendar::i18n::t("prev_month")));
+        prev_btn.set_tooltip_text(Some(shadowdate::i18n::t("prev_month")));
         let next_btn = Button::with_label("›");
         next_btn.add_css_class("nav-button");
-        next_btn.set_tooltip_text(Some(calendar::i18n::t("next_month")));
-        let today_btn = Button::with_label(calendar::i18n::t("today"));
-        today_btn.set_tooltip_text(Some(calendar::i18n::t("today")));
-        let new_btn = Button::with_label(calendar::i18n::t("new"));
-        new_btn.set_tooltip_text(Some(calendar::i18n::t("new")));
+        next_btn.set_tooltip_text(Some(shadowdate::i18n::t("next_month")));
+        let today_btn = Button::with_label(shadowdate::i18n::t("today"));
+        today_btn.set_tooltip_text(Some(shadowdate::i18n::t("today")));
+        let new_btn = Button::with_label(shadowdate::i18n::t("new"));
+        new_btn.set_tooltip_text(Some(shadowdate::i18n::t("new")));
         new_btn.add_css_class("new-button");
 
         let view = Rc::new(Self {
@@ -263,10 +263,10 @@ impl CalendarView {
             let s = self.state.borrow();
             (s.view_year, s.view_month, s.selected)
         };
-        let month_name = calendar::i18n::format_month_year(view_year, view_month);
+        let month_name = shadowdate::i18n::format_month_year(view_year, view_month);
         self.month_label.set_text(&month_name);
 
-        let weekdays = calendar::i18n::weekday_abbrevs();
+        let weekdays = shadowdate::i18n::weekday_abbrevs();
         for (i, wd) in weekdays.iter().enumerate() {
             let l = Label::new(Some(wd));
             l.add_css_class("weekday-header");
@@ -328,7 +328,7 @@ impl CalendarView {
             self.list_box.remove(&child);
         }
         let s = self.state.borrow();
-        self.day_label.set_text(&calendar::i18n::format_date(s.selected));
+        self.day_label.set_text(&shadowdate::i18n::format_date(s.selected));
         let appts: Vec<Appointment> = self.ctx.store().borrow().on_date(s.selected);
         for a in &appts {
             let row = build_appt_row(a);
@@ -353,11 +353,11 @@ impl CalendarView {
             let empty_box = Box::new(gtk::Orientation::Vertical, 6);
             empty_box.set_halign(gtk::Align::Center);
             empty_box.set_margin_top(16);
-            let empty = Label::new(Some(calendar::i18n::t("no_appointments")));
+            let empty = Label::new(Some(shadowdate::i18n::t("no_appointments")));
             empty.add_css_class("empty-label");
             empty_box.append(&empty);
 
-            let add_btn = Button::with_label(calendar::i18n::t("add_appointment"));
+            let add_btn = Button::with_label(shadowdate::i18n::t("add_appointment"));
             add_btn.add_css_class("empty-cta");
             let this = self.clone();
             let selected = s.selected;
@@ -431,7 +431,7 @@ fn build_cell(
             dot_row.append(&dot);
         }
         if appts.len() > 5 {
-            let more = Label::new(Some(&calendar::i18n::more_compact(appts.len() - 5)));
+            let more = Label::new(Some(&shadowdate::i18n::more_compact(appts.len() - 5)));
             more.add_css_class("dot-count");
             dot_row.append(&more);
         }
@@ -462,9 +462,9 @@ fn build_cell(
 /// view/i18n layer; the model never formats localized strings.
 fn appt_time_label(a: &Appointment) -> String {
     if a.all_day {
-        calendar::i18n::t("all_day_short").to_string()
+        shadowdate::i18n::t("all_day_short").to_string()
     } else {
-        calendar::i18n::time_range(&a.start, &a.end)
+        shadowdate::i18n::time_range(&a.start, &a.end)
     }
 }
 
@@ -484,7 +484,7 @@ fn build_appt_row(a: &Appointment) -> Box {
     title.set_max_width_chars(32);
     row.append(&title);
     if a.all_day {
-        let tag = Label::new(Some(calendar::i18n::t("all_day_short")));
+        let tag = Label::new(Some(shadowdate::i18n::t("all_day_short")));
         tag.add_css_class("all-day-tag");
         tag.set_xalign(0.0);
         row.append(&tag);

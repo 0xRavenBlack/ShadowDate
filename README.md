@@ -8,7 +8,7 @@
 
 <br/>
 
-![Rust](https://img.shields.io/badge/Rust-2021-b39ddb?style=for-the-badge&logo=rust&logoColor=1b1b26&labelColor=2c2c40)
+![Rust](https://img.shields.io/badge/Rust-2024-b39ddb?style=for-the-badge&logo=rust&logoColor=1b1b26&labelColor=2c2c40)
 ![GTK4](https://img.shields.io/badge/GTK-4-a0e7c0?style=for-the-badge&logo=gnome&logoColor=1b1b26&labelColor=2c2c40)
 ![iCalendar](https://img.shields.io/badge/iCalendar-.ics-f6c79b?style=for-the-badge&logoColor=1b1b26&labelColor=2c2c40)
 ![Wayland](https://img.shields.io/badge/Wayland-Hyprland-f4a3c0?style=for-the-badge&logoColor=1b1b26&labelColor=2c2c40)
@@ -156,7 +156,7 @@ Then reload: `hyprctl reload` 🔄
 
 ```
 shadowdate/
-├── 📦 Cargo.toml          # bins: shadowdate + shadowdate-service · lib: calendar
+├── 📦 Cargo.toml          # bins: shadowdate + shadowdate-service · lib: shadowdate
 ├── 🗂️  src/
 │   ├── main.rs            # app bootstrap, window, headerbar
 │   ├── model.rs           # Appointment + Store

@@ -1,5 +1,5 @@
-use calendar::model::{make_datetime, Appointment, NewAppointment, Store};
-use calendar::service::{pending_reminders, prune_fired, reminder_time, ServiceConfig};
+use shadowdate::model::{make_datetime, Appointment, NewAppointment, Store};
+use shadowdate::service::{pending_reminders, prune_fired, reminder_time, ServiceConfig};
 use chrono::{DateTime, Local, NaiveDate, TimeDelta};
 use std::collections::HashSet;
 
@@ -23,7 +23,7 @@ fn timed(uid: &str, start: (u32, u32), dur_h: i64, all_day: bool) -> Appointment
 
 fn cfg(lead: u32) -> ServiceConfig {
     ServiceConfig {
-        reminders: calendar::service::Reminders {
+        reminders: shadowdate::service::Reminders {
             lead_min: lead,
             all_day_hour: 9,
             all_day_minute: 0,
@@ -190,7 +190,7 @@ fn edited_event_refires_with_new_reminder_time() {
     assert_eq!(pending.len(), 1, "edited time must produce a fresh reminder");
     let expected_key = format!(
         "same-uid@{}",
-        calendar::service::reminder_time(&edited, &cfg(10)).timestamp()
+        shadowdate::service::reminder_time(&edited, &cfg(10)).timestamp()
     );
     assert_eq!(pending[0].0, expected_key);
 }
@@ -240,7 +240,7 @@ fn config_clamps_out_of_range_values() {
     let cfg = ServiceConfig::load(&p);
     assert_eq!(
         cfg.reminders.lead_min,
-        calendar::service::MAX_LEAD_MIN,
+        shadowdate::service::MAX_LEAD_MIN,
         "lead must clamp to the shared MAX_LEAD_MIN contract"
     );
     assert_eq!(cfg.reminders.all_day_hour, 23);
@@ -252,7 +252,7 @@ fn config_clamps_out_of_range_values() {
 fn config_save_load_roundtrip() {
     let p = std::env::temp_dir().join("shadowdate_service_rt.toml");
     let cfg = ServiceConfig {
-        reminders: calendar::service::Reminders {
+        reminders: shadowdate::service::Reminders {
             lead_min: 30,
             all_day_hour: 8,
             all_day_minute: 45,

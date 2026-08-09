@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 /// PRODID written into exported `.ics` files (also used when saving the store).
-pub const PRODID: &str = "-//ravenblack//calendar//EN";
+pub const PRODID: &str = "-//ravenblack//ShadowDate//EN";
 
 /// Serialize a Store to an .ics string.
 pub fn store_to_ics(store: &Store, prodid: &str) -> String {

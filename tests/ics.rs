@@ -1,7 +1,7 @@
-use calendar::ical_export::store_to_ics;
-use calendar::ical_import::{import_ics, import_ics_with_warnings};
-use calendar::model::{make_datetime, Appointment, NewAppointment, Store};
-use calendar::store_io::{backup_corrupt, load_store, save_store};
+use shadowdate::ical_export::store_to_ics;
+use shadowdate::ical_import::{import_ics, import_ics_with_warnings};
+use shadowdate::model::{make_datetime, Appointment, NewAppointment, Store};
+use shadowdate::store_io::{backup_corrupt, load_store, save_store};
 use chrono::NaiveDate;
 
 #[test]

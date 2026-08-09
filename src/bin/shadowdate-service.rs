@@ -9,13 +9,13 @@
 //! with `DO_NOT_QUEUE`; a second invocation sees the name is taken, logs a note,
 //! and exits immediately.
 //!
-//! Scheduling policy lives in `calendar::service` (pure functions, unit-tested);
+//! Scheduling policy lives in `shadowdate::service` (pure functions, unit-tested);
 //! this binary only wires them to the clock, the file system, and D-Bus.
 
-use calendar::ical_import;
-use calendar::model::Store;
-use calendar::paths;
-use calendar::service::{self, ServiceConfig, APP_ID, SERVICE_NAME};
+use shadowdate::ical_import;
+use shadowdate::model::Store;
+use shadowdate::paths;
+use shadowdate::service::{self, ServiceConfig, APP_ID, SERVICE_NAME};
 use chrono::Local;
 use std::cell::RefCell;
 use std::collections::HashSet;

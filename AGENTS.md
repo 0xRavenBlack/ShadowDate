@@ -19,7 +19,7 @@ binary `shadowdate-service`, installed as the systemd user unit
 ## Layout
 
 ```
-Cargo.toml              # [[bin]] shadowdate + [[bin]] shadowdate-service + [lib] calendar;
+Cargo.toml              # [[bin]] shadowdate + [[bin]] shadowdate-service + [lib] shadowdate;
                         # deps: gtk4 (0.11), glib/gio (0.22), ical, chrono, chrono-tz, uuid,
                         # anyhow, resvg, serde (derive), toml
 src/
@@ -40,8 +40,8 @@ src/
   service.rs            # ServiceConfig (toml), reminder_time, pending_reminders, notify, fired_key
   bin/
     shadowdate-service.rs # headless daemon: owns a D-Bus name, polls .ics + config, notifies
-  main.rs / calendar_view.rs / form_dialog.rs / service_settings.rs use `calendar::i18n`
-  and the rest of the lib crate via `calendar::*`
+  main.rs / calendar_view.rs / form_dialog.rs / service_settings.rs use `shadowdate::i18n`
+  and the rest of the lib crate via `shadowdate::*`
 tests/
   ics.rs                # integration tests: ics round-trip, RRULE expansion, TZID,
                         # escaping, series delete (calendar_view has grid unit tests)
@@ -203,10 +203,11 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
 - Sharing the view across GTK signal callbacks uses `Rc<RefCell<Option<...>>>` (not
   `Arc<Mutex<...>>`) because the view is not `Send`/`Sync` and all access is on the
   main thread (`connect_notify_local`, `run_async`).
-- The `calendar` crate is both a **bin** and a **lib**; `main.rs` uses `calendar::*`
+- The `shadowdate` crate is both a **bin** and a **lib**; `main.rs` uses `shadowdate::*`
   while `calendar_view.rs` / `form_dialog.rs` / `i18n.rs` / `images.rs` use
-  `calendar::model`. The binary name is `shadowdate`; do not rename the lib crate
-  without updating those paths. `i18n`, `paths`, and `service` live **in the lib**
+  `shadowdate::model`. The package and lib crate are both named `shadowdate`
+  (lib imports are `shadowdate::...`); the `calendar_view` module/file keeps its name.
+  `i18n`, `paths`, and `service` live **in the lib**
   (not in `main.rs`) so the headless `shadowdate-service` bin can use them without
   pulling in GTK.
 - Embedded images: add new art via `include_bytes!` in `images.rs` and rasterize the
@@ -241,5 +242,8 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   Then bump `pkgver` in `PKGBUILD`, update the binaries' `sha256sums`
   (`makepkg -g` regenerates them), rebuild `.SRCINFO`
   (`makepkg --printsrcinfo > .SRCINFO`), and commit.
+  **`pkgver` in `PKGBUILD` is the single source of truth for the version number**:
+  always take the version from there and mirror it into `Cargo.toml` (`[package]
+  version`), keeping the two in sync.
 - Add a reminder setting: update `Reminders` in `service.rs` (serde fields), the
   UI in `service_settings.rs`, and the `tests/service.rs` config round-trip test.

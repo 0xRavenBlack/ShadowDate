@@ -5,9 +5,9 @@
 //! daemon watches that file and picks up changes without a restart.
 
 use crate::ui::{section_box, show_error, time_spin};
-use calendar::i18n;
-use calendar::paths;
-use calendar::service::{self, ServiceConfig, MAX_LEAD_MIN, SERVICE_NAME};
+use shadowdate::i18n;
+use shadowdate::paths;
+use shadowdate::service::{self, ServiceConfig, MAX_LEAD_MIN, SERVICE_NAME};
 use gtk::prelude::*;
 use gtk::{Box, Button, Dialog, Label, ResponseType, SpinButton};
 use std::cell::RefCell;
