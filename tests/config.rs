@@ -1,8 +1,15 @@
 use shadowdate::config::{Appearance, Reminders, ServiceConfig, MAX_LEAD_MIN};
 
+/// A unique temp path for this test process so parallel `cargo test` runs
+/// (separate processes sharing the global temp dir) never collide on the same
+/// fixed filename or trip over stale files from a crashed run.
+fn tmp(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("{}-{}", std::process::id(), name))
+}
+
 #[test]
 fn config_defaults_on_missing_file() {
-    let p = std::env::temp_dir().join("shadowdate_service_missing.toml");
+    let p = tmp("shadowdate_service_missing.toml");
     std::fs::remove_file(&p).ok();
     let cfg = ServiceConfig::load(&p);
     assert_eq!(cfg.reminders.lead_min, 10);
@@ -13,7 +20,7 @@ fn config_defaults_on_missing_file() {
 
 #[test]
 fn config_defaults_on_invalid_content() {
-    let p = std::env::temp_dir().join("shadowdate_service_bad.toml");
+    let p = tmp("shadowdate_service_bad.toml");
     std::fs::write(&p, "not = [valid").unwrap();
     let cfg = ServiceConfig::load(&p);
     assert_eq!(cfg.reminders.lead_min, 10);
@@ -25,7 +32,7 @@ fn config_defaults_on_invalid_content() {
 fn config_without_appearance_key_defaults_to_visible() {
     // A config written before the appearance section existed must not hide the
     // portrait: the missing key loads as `show_portrait = true`.
-    let p = std::env::temp_dir().join("shadowdate_service_no_appearance.toml");
+    let p = tmp("shadowdate_service_no_appearance.toml");
     std::fs::write(
         &p,
         "[reminders]\nlead_min = 5\nall_day_hour = 9\nall_day_minute = 0\n",
@@ -41,7 +48,7 @@ fn config_without_appearance_key_defaults_to_visible() {
 fn config_clamps_out_of_range_values() {
     // A hand-edited config with absurd hours/minutes must not panic the daemon
     // when scheduling; values are clamped to valid ranges instead.
-    let p = std::env::temp_dir().join("shadowdate_service_clamp.toml");
+    let p = tmp("shadowdate_service_clamp.toml");
     std::fs::write(
         &p,
         "[reminders]\nlead_min = 5000\nall_day_hour = 99\nall_day_minute = 99\n",
@@ -60,7 +67,7 @@ fn config_clamps_out_of_range_values() {
 
 #[test]
 fn config_save_load_roundtrip() {
-    let p = std::env::temp_dir().join("shadowdate_service_rt.toml");
+    let p = tmp("shadowdate_service_rt.toml");
     let cfg = ServiceConfig {
         reminders: Reminders {
             lead_min: 30,

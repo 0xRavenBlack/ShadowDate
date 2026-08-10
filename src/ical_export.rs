@@ -1,9 +1,8 @@
 //! Serialize a `Store` to an `.ics` file.
 
 use crate::model::Store;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Local;
-use std::fs;
 use std::path::Path;
 
 /// PRODID written into exported `.ics` files (also used when saving the store).
@@ -123,9 +122,10 @@ fn fold_line(line: &str) -> String {
     out
 }
 
-/// Export a store to a file.
+/// Export a store to a file. Written atomically (temp file + rename) so
+/// exporting over the app's own store file can never tear it while the
+/// background reminder daemon is reading it.
 pub fn export_ics(store: &Store, path: &Path, prodid: &str) -> Result<()> {
     let data = store_to_ics(store, prodid);
-    fs::write(path, data).with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
+    crate::store_io::write_atomic(path, &data)
 }

@@ -13,7 +13,8 @@ use ical::property::Property;
 use std::collections::HashSet;
 
 /// Hard safety caps so a malformed/giant RRULE can never hang the importer.
-const MAX_OCCURRENCES: usize = 4000;
+/// Also used by the importer to bound EXDATE/RDATE lists before expansion.
+pub(crate) const MAX_OCCURRENCES: usize = 4000;
 const MAX_EXPAND_YEARS: i32 = 20;
 
 /// The (start, end) pairs of a single expanded occurrence.

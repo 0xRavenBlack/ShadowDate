@@ -8,7 +8,7 @@
 //! reminder daemon work without change.
 
 use crate::model::{local_from_naive, Appointment, Store};
-use crate::rrule::expand_recurrence;
+use crate::rrule::{expand_recurrence, MAX_OCCURRENCES};
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeDelta, TimeZone};
 use chrono_tz::Tz;
@@ -233,15 +233,22 @@ fn event_to_appointments(props: &[Property], warnings: &mut Vec<String>) -> Vec<
     let rrule = prop_value(props, "RRULE");
     match rrule {
         Some(rrule) if !rrule.trim().is_empty() => {
+            // EXDATE/RDATE lists are capped at the same occurrence bound as the
+            // base expansion so a hostile file cannot grow the store past
+            // MAX_OCCURRENCES (or blow up memory parsing a giant list). `.take`
+            // is lazy: a single property with millions of commas is never fully
+            // parsed.
             let exclude: HashSet<NaiveDate> = props
                 .iter()
                 .filter(|p| p.name.eq_ignore_ascii_case("EXDATE"))
                 .flat_map(parse_date_list)
+                .take(MAX_OCCURRENCES)
                 .collect();
             let extra: Vec<NaiveDate> = props
                 .iter()
                 .filter(|p| p.name.eq_ignore_ascii_case("RDATE"))
                 .flat_map(parse_date_list)
+                .take(MAX_OCCURRENCES)
                 .collect();
             match expand_recurrence(start, end, all_day, &rrule, &exclude, &extra) {
                 Ok(occurrences) => occurrences
@@ -275,13 +282,16 @@ fn unescape_text(s: &str) -> String {
 
 /// Parse a comma-separated list of DATE or DATE-TIME values (used by EXDATE
 /// and RDATE) into a list of `NaiveDate`s. DATE values (8 digits) are parsed
-/// directly; DATE-TIME values use only the date portion.
+/// directly; DATE-TIME values use only the date portion. Capped at
+/// `MAX_OCCURRENCES` entries so a single hostile property with millions of
+/// commas is never fully materialized.
 fn parse_date_list(prop: &Property) -> Vec<NaiveDate> {
     let val = match &prop.value {
         Some(v) => v,
         None => return Vec::new(),
     };
     val.split(',')
+        .take(MAX_OCCURRENCES)
         .filter_map(|tok| {
             let tok = tok.trim();
             if tok.is_empty() {

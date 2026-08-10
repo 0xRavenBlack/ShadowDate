@@ -25,7 +25,7 @@ fn roundtrip_ics() {
     assert!(ics.contains("SUMMARY:Dentist"));
 
     // parse it back
-    let path = std::env::temp_dir().join("cal_test_roundtrip.ics");
+    let path = tmp("cal_test_roundtrip.ics");
     std::fs::write(&path, &ics).unwrap();
     let imported = import_ics(&path).unwrap();
     assert_eq!(imported.items().len(), 1);
@@ -39,7 +39,7 @@ fn roundtrip_ics() {
 
 #[test]
 fn load_nonexistent_is_empty() {
-    let p = std::env::temp_dir().join("cal_does_not_exist_xyz.ics");
+    let p = tmp("cal_does_not_exist_xyz.ics");
     let (store, warnings) = load_store(&p).unwrap();
     assert!(store.items().is_empty());
     assert!(warnings.is_empty());
@@ -59,7 +59,7 @@ DTSTART;VALUE=DATE:20260805\r\n
 DTEND;VALUE=DATE:20260808\r\n
 END:VEVENT\r\n
 END:VCALENDAR\r\n";
-    let path = std::env::temp_dir().join("cal_test_allday.ics");
+    let path = tmp("cal_test_allday.ics");
     std::fs::write(&path, ics).unwrap();
     let store = import_ics(&path).unwrap();
     assert_eq!(store.items().len(), 1);
@@ -88,7 +88,7 @@ SUMMARY:Holiday\r\n
 DTSTART;VALUE=DATE:20260910\r\n
 END:VEVENT\r\n
 END:VCALENDAR\r\n";
-    let path = std::env::temp_dir().join("cal_test_allday_single.ics");
+    let path = tmp("cal_test_allday_single.ics");
     std::fs::write(&path, ics).unwrap();
     let store = import_ics(&path).unwrap();
     let a = &store.items()[0];
@@ -102,8 +102,15 @@ END:VCALENDAR\r\n";
     std::fs::remove_file(&path).ok();
 }
 
+/// A unique temp path for this test process so parallel `cargo test` runs
+/// (separate processes sharing the global temp dir) never collide on the same
+/// fixed filename or trip over stale files from a crashed run.
+fn tmp(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("{}-{}", std::process::id(), name))
+}
+
 fn write_ics(name: &str, body: &str) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(name);
+    let path = tmp(name);
     std::fs::write(&path, body).unwrap();
     path
 }
@@ -123,7 +130,7 @@ fn text_escaping_roundtrips() {
         end: make_datetime(d(2026, 8, 5), 10, 0),
         all_day: false,
     }));
-    let path = std::env::temp_dir().join("cal_test_escape.ics");
+    let path = tmp("cal_test_escape.ics");
     save_store(&store, &path).unwrap();
     let loaded = import_ics(&path).unwrap();
     let a = &loaded.items()[0];
@@ -280,6 +287,33 @@ RDATE:20270601\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
 }
 
 #[test]
+fn rdate_list_is_capped_at_occurrence_bound() {
+    // A hostile file with a huge RDATE list must not grow the store past the
+    // 4000-occurrence cap shared with the base expansion.
+    let start = d(2027, 1, 1);
+    let rdates: Vec<String> = (0..5000)
+        .map(|i| (start + chrono::Days::new(i)).format("%Y%m%d").to_string())
+        .collect();
+    let ics = format!(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n\
+BEGIN:VEVENT\r\nUID:cap-1\r\nSUMMARY:Cap\r\n\
+DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\n\
+RRULE:FREQ=DAILY;COUNT=5\r\n\
+RDATE:{}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+        rdates.join(",")
+    );
+    let path = write_ics("cal_test_rdate_cap.ics", &ics);
+    let store = import_ics(&path).unwrap();
+    // 5 base occurrences + RDATEs appended only up to the 4000 cap.
+    assert_eq!(
+        store.items().len(),
+        4000,
+        "RDATE list must be bounded by the occurrence cap"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
 fn rrule_weekly_until_keeps_remaining_byday_in_boundary_week() {
     // BYDAY lists are not necessarily chronological (FR before MO here). UNTIL
     // lands on MO of the following week, so the scan must not stop at the first
@@ -369,7 +403,7 @@ END:VCALENDAR\r\n";
 fn backup_corrupt_preserves_unreadable_file() {
     // The app must never silently start empty over a corrupt file: it backs the
     // bytes up first so the data survives the next save.
-    let p = std::env::temp_dir().join("cal_backup_test.ics");
+    let p = tmp("cal_backup_test.ics");
     std::fs::write(&p, b"some \xff\xfe binary-ish garbage").unwrap();
     let backup = backup_corrupt(&p).unwrap();
     assert!(backup.exists());
@@ -395,7 +429,7 @@ fn long_text_survives_line_folding_roundtrip() {
         end: make_datetime(d(2026, 8, 5), 10, 0),
         all_day: false,
     }));
-    let path = std::env::temp_dir().join("cal_test_fold.ics");
+    let path = tmp("cal_test_fold.ics");
     save_store(&store, &path).unwrap();
     // Physical lines must not exceed 75 octets + CRLF.
     let raw = std::fs::read_to_string(&path).unwrap();
@@ -444,7 +478,7 @@ fn utf8_bom_is_stripped_on_import() {
     let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n\
 BEGIN:VEVENT\r\nUID:bom-1\r\nSUMMARY:Bom\r\n\
 DTSTART;VALUE=DATE:20260805\r\nDTEND;VALUE=DATE:20260806\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
-    let path = std::env::temp_dir().join("cal_test_bom.ics");
+    let path = tmp("cal_test_bom.ics");
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(ics.as_bytes());
     std::fs::write(&path, &bytes).unwrap();

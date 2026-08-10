@@ -1,11 +1,20 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
+
+/// Read an env var, treating a set-but-empty value as unset. Per the XDG base
+/// directory spec, an empty `XDG_DATA_HOME`/`XDG_CONFIG_HOME` means "not set";
+/// treating it as a real directory would redirect the store/config into the
+/// current working directory (`./calendar/calendar.ics`).
+fn non_empty_env(key: &str) -> Option<OsString> {
+    std::env::var_os(key).filter(|v| !v.is_empty())
+}
 
 /// XDG data directory (`$XDG_DATA_HOME` or `~/.local/share`).
 pub fn dirs_data() -> Option<PathBuf> {
-    std::env::var_os("XDG_DATA_HOME")
+    non_empty_env("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("HOME").map(|h| {
+            non_empty_env("HOME").map(|h| {
                 let mut p = PathBuf::from(h);
                 p.push(".local");
                 p.push("share");
@@ -16,10 +25,10 @@ pub fn dirs_data() -> Option<PathBuf> {
 
 /// XDG config directory (`$XDG_CONFIG_HOME` or `~/.config`).
 pub fn dirs_config() -> Option<PathBuf> {
-    std::env::var_os("XDG_CONFIG_HOME")
+    non_empty_env("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("HOME").map(|h| {
+            non_empty_env("HOME").map(|h| {
                 let mut p = PathBuf::from(h);
                 p.push(".config");
                 p
