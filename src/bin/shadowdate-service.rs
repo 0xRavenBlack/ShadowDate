@@ -127,7 +127,10 @@ fn tick(state: &Rc<RefCell<Daemon>>) {
             }
         };
     }
-    service::prune_fired(&mut d.fired, now);
+    // The fired set and the store are disjoint fields; reborrow through a plain
+    // `&mut` reference (not the `RefMut`) so the borrow checker can split them.
+    let d = &mut *d;
+    service::prune_fired(&mut d.fired, &d.store, now);
 }
 
 /// Reload the config whenever its file changes. A parse failure keeps the last

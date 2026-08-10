@@ -1,7 +1,7 @@
 use shadowdate::config::{Appearance, Reminders, ServiceConfig};
 use shadowdate::model::{make_datetime, Appointment, NewAppointment, Store};
 use shadowdate::service::{pending_reminders, prune_fired, reminder_time};
-use chrono::{DateTime, Local, NaiveDate, TimeDelta};
+use chrono::{NaiveDate, TimeDelta};
 use std::collections::HashSet;
 
 fn d(y: i32, m: u32, day: u32) -> NaiveDate {
@@ -195,14 +195,81 @@ fn edited_event_refires_with_new_reminder_time() {
 }
 
 #[test]
-fn prune_fired_removes_stale_keys() {
+fn prune_fired_keeps_keys_only_while_event_is_due() {
+    // A timed event that ended an hour ago: its key must be pruned.
+    let ended = timed("ended", (8, 0), 1, false); // 08:00-09:00
+    // An all-day event on today, still running: its key must be kept even
+    // though the reminder is long past the old 6-hour retention.
+    let allday = Appointment::build(NewAppointment {
+        uid: "allday".to_string(),
+        series_uid: "allday".to_string(),
+        title: "Event".to_string(),
+        description: String::new(),
+        location: String::new(),
+        start: make_datetime(d(2026, 8, 5), 0, 0),
+        end: make_datetime(d(2026, 8, 6), 0, 0),
+        all_day: true,
+    });
+    let mut store = Store::new();
+    store.insert(ended.clone());
+    store.insert(allday.clone());
+    let now = make_datetime(d(2026, 8, 5), 20, 0);
     let mut fired = HashSet::new();
-    let now: DateTime<Local> = Local::now();
-    let old = now - TimeDelta::hours(7);
-    let fresh = now - TimeDelta::minutes(1);
-    fired.insert(format!("a@{}", old.timestamp()));
-    fired.insert(format!("b@{}", fresh.timestamp()));
-    prune_fired(&mut fired, now);
-    assert!(!fired.contains(&format!("a@{}", old.timestamp())));
-    assert!(fired.contains(&format!("b@{}", fresh.timestamp())));
+    let ended_key = format!("ended@{}", reminder_time(&ended, &cfg(10)).timestamp());
+    let allday_key = format!("allday@{}", reminder_time(&allday, &cfg(10)).timestamp());
+    fired.insert(ended_key.clone());
+    fired.insert(allday_key.clone());
+
+    prune_fired(&mut fired, &store, now);
+
+    assert!(!fired.contains(&ended_key), "ended event's key must be pruned");
+    assert!(
+        fired.contains(&allday_key),
+        "ongoing all-day event's key must survive prune"
+    );
+
+    // Once the all-day event's start date passes it is no longer due, so the
+    // key is finally pruned.
+    let next_day = make_datetime(d(2026, 8, 6), 0, 5);
+    prune_fired(&mut fired, &store, next_day);
+    assert!(fired.is_empty());
+}
+
+#[test]
+fn allday_reminder_does_not_refire_after_prune() {
+    let appt = Appointment::build(NewAppointment {
+        uid: "ad".to_string(),
+        series_uid: "ad".to_string(),
+        title: "Event".to_string(),
+        description: String::new(),
+        location: String::new(),
+        start: make_datetime(d(2026, 8, 5), 0, 0),
+        end: make_datetime(d(2026, 8, 6), 0, 0),
+        all_day: true,
+    });
+    let mut store = Store::new();
+    store.insert(appt.clone());
+    let cfg = cfg(10);
+    let mut fired = HashSet::new();
+
+    // The reminder fires once at 09:00 as configured.
+    let morning = make_datetime(d(2026, 8, 5), 9, 0);
+    let due = pending_reminders(&store, &cfg, morning, &fired);
+    assert_eq!(due.len(), 1);
+    for (key, _) in &due {
+        fired.insert(key.clone());
+    }
+
+    // Tick at 23:00, long past the old 6-hour retention, event still running:
+    // the dedupe key must have survived prune, so nothing re-fires.
+    let late = make_datetime(d(2026, 8, 5), 23, 0);
+    prune_fired(&mut fired, &store, late);
+    assert!(
+        pending_reminders(&store, &cfg, late, &fired).is_empty(),
+        "all-day reminder must not re-fire after its key was pruned"
+    );
+
+    // Next day the event is gone entirely.
+    let next_day = make_datetime(d(2026, 8, 6), 9, 0);
+    assert!(pending_reminders(&store, &cfg, next_day, &fired).is_empty());
 }

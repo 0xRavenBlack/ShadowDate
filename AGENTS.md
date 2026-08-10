@@ -173,7 +173,9 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   ongoing event); all-day events fire **once**, at `all_day_hour:all_day_minute`
   on their **start date only** (multi-day all-day events are announced exactly
   once); results are sorted by start. Dedupe keys are `uid@<reminder_ts>`, so
-  editing an event (same UID, new time) re-fires; keys are pruned after 6h.
+  editing an event (same UID, new time) re-fires; keys are pruned once their
+  event is no longer due (event ended or, for all-day events, the start date
+  passed), so an ongoing all-day event can never re-fire after its key is gone.
   The daemon (`src/bin/shadowdate-service.rs`) is headless (no GTK widgets), owns
   the session name `org.ravenblack.ShadowDate.Service` with `DO_NOT_QUEUE` (a
   second instance exits), and **polls** the `.ics` file + config every 1s via

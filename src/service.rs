@@ -29,9 +29,6 @@ pub const SERVICE_NAME: &str = "org.ravenblack.ShadowDate.Service";
 const NOTIFY_IFACE: &str = "org.freedesktop.Notifications";
 const NOTIFY_PATH: &str = "/org/freedesktop/Notifications";
 
-/// How long a fired reminder stays in the dedupe set before being pruned.
-const FIRED_RETENTION: TimeDelta = TimeDelta::hours(6);
-
 /// When an appointment's reminder should fire. Timed events are reminded
 /// `lead_min` minutes early; all-day events at the configured morning time on
 /// the start date.
@@ -82,13 +79,31 @@ pub fn pending_reminders<'a>(
     pending
 }
 
-/// Drop fired keys older than `FIRED_RETENTION` to bound memory on long runs.
-pub fn prune_fired(fired: &mut HashSet<String>, now: DateTime<Local>) {
-    let cutoff = (now - FIRED_RETENTION).timestamp();
+/// Drop fired keys whose appointment is no longer due.
+///
+/// A reminder is "due" from its `reminder_time` until the event ends (for
+/// all-day events, until the end of the start date). The dedupe key must live
+/// exactly that long or a still-running event would re-fire — an all-day event
+/// stays due up to ~24 h, far past any fixed time-based retention. A key is
+/// therefore kept only while its event is still due (same rules as
+/// [`pending_reminders`]); the moment the event ends or is deleted the key is
+/// pruned, so the set stays bounded by the number of live events. Events
+/// re-added under the same UID while still due simply fire again, which is the
+/// correct "this is a fresh reminder" behaviour.
+pub fn prune_fired(fired: &mut HashSet<String>, store: &Store, now: DateTime<Local>) {
     fired.retain(|k| match k.rfind('@') {
-        Some(i) => k[i + 1..].parse::<i64>().map(|ts| ts >= cutoff).unwrap_or(true),
+        Some(i) => match store.get(&k[..i]) {
+            Some(appt) => is_due(appt, now),
+            None => false,
+        },
         None => true,
     });
+}
+
+/// Whether an appointment's reminder can still be due, i.e. the event has not
+/// ended and (for all-day events) today is still the start date.
+fn is_due(appt: &Appointment, now: DateTime<Local>) -> bool {
+    appt.end > now && (!appt.all_day || appt.date() == now.date_naive())
 }
 
 /// Connect a proxy to the session notification daemon.
