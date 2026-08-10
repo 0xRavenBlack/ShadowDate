@@ -2,7 +2,7 @@ use crate::AppContext;
 use shadowdate::model::{today, Appointment};
 use chrono::{Datelike, NaiveDate};
 use gtk::prelude::*;
-use gtk::{Box, Button, Grid, Label, ListBox, ListBoxRow, ScrolledWindow};
+use gtk::{Box, Button, Grid, Label, ListBox, ListBoxRow, Picture, ScrolledWindow};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -21,6 +21,7 @@ pub struct CalendarView {
     day_label: Label,
     state: Rc<RefCell<ViewState>>,
     ctx: Rc<AppContext>,
+    portrait: Option<Picture>,
     pub prev_btn: Button,
     pub next_btn: Button,
     pub today_btn: Button,
@@ -42,14 +43,18 @@ impl CalendarView {
         overlay.set_hexpand(true);
         overlay.set_vexpand(true);
 
-        if let Some(portrait) = crate::images::portrait_widget() {
-            portrait.set_hexpand(true);
-            portrait.set_vexpand(true);
-            portrait.set_halign(gtk::Align::Start);
-            portrait.set_valign(gtk::Align::Fill);
-            portrait.set_margin_start(12);
-            portrait.add_css_class("bg-portrait");
-            overlay.set_child(Some(&portrait));
+        let portrait = crate::images::portrait_widget();
+        if let Some(p) = &portrait {
+            p.set_hexpand(true);
+            p.set_vexpand(true);
+            p.set_halign(gtk::Align::Start);
+            p.set_valign(gtk::Align::Fill);
+            p.set_margin_start(12);
+            p.add_css_class("bg-portrait");
+            overlay.set_child(Some(p));
+        }
+        if let Some(p) = &portrait {
+            p.set_visible(show_portrait_from_config());
         }
 
         let inner = Box::new(gtk::Orientation::Vertical, 8);
@@ -133,6 +138,7 @@ impl CalendarView {
             day_label,
             state,
             ctx,
+            portrait,
             prev_btn,
             next_btn,
             today_btn,
@@ -248,6 +254,14 @@ impl CalendarView {
 
     pub fn refresh(self: &Rc<Self>) {
         self.refresh_all();
+    }
+
+    /// Show or hide the decorative background portrait. The widget stays in the
+    /// overlay (so layout is untouched) but is only drawn while visible.
+    pub fn set_portrait_visible(&self, visible: bool) {
+        if let Some(p) = &self.portrait {
+            p.set_visible(visible);
+        }
     }
 
     fn refresh_all(self: &Rc<Self>) {
@@ -382,6 +396,14 @@ impl CalendarView {
 /// unit-tested without a display.
 fn cell_offset(first_weekday: i32, cell: usize) -> i32 {
     cell as i32 - first_weekday
+}
+
+/// Whether the background portrait should be shown, read from the shared app
+/// config (a missing config defaults to visible).
+fn show_portrait_from_config() -> bool {
+    shadowdate::config::ServiceConfig::load(&shadowdate::paths::config_path())
+        .appearance
+        .show_portrait
 }
 
 fn build_cell(

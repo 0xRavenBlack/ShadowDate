@@ -12,10 +12,11 @@
 //! Scheduling policy lives in `shadowdate::service` (pure functions, unit-tested);
 //! this binary only wires them to the clock, the file system, and D-Bus.
 
+use shadowdate::config::ServiceConfig;
 use shadowdate::ical_import;
 use shadowdate::model::Store;
 use shadowdate::paths;
-use shadowdate::service::{self, ServiceConfig, APP_ID, SERVICE_NAME};
+use shadowdate::service::{self, APP_ID, SERVICE_NAME};
 use chrono::Local;
 use std::cell::RefCell;
 use std::collections::HashSet;

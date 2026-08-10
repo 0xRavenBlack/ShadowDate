@@ -1,5 +1,6 @@
+use shadowdate::config::{Appearance, Reminders, ServiceConfig};
 use shadowdate::model::{make_datetime, Appointment, NewAppointment, Store};
-use shadowdate::service::{pending_reminders, prune_fired, reminder_time, ServiceConfig};
+use shadowdate::service::{pending_reminders, prune_fired, reminder_time};
 use chrono::{DateTime, Local, NaiveDate, TimeDelta};
 use std::collections::HashSet;
 
@@ -23,11 +24,12 @@ fn timed(uid: &str, start: (u32, u32), dur_h: i64, all_day: bool) -> Appointment
 
 fn cfg(lead: u32) -> ServiceConfig {
     ServiceConfig {
-        reminders: shadowdate::service::Reminders {
+        reminders: Reminders {
             lead_min: lead,
             all_day_hour: 9,
             all_day_minute: 0,
         },
+        appearance: Appearance::default(),
     }
 }
 
@@ -188,10 +190,7 @@ fn edited_event_refires_with_new_reminder_time() {
     let now = make_datetime(d(2026, 8, 5), 10, 50);
     let pending = pending_reminders(&store, &cfg(10), now, &fired);
     assert_eq!(pending.len(), 1, "edited time must produce a fresh reminder");
-    let expected_key = format!(
-        "same-uid@{}",
-        shadowdate::service::reminder_time(&edited, &cfg(10)).timestamp()
-    );
+    let expected_key = format!("same-uid@{}", reminder_time(&edited, &cfg(10)).timestamp());
     assert_eq!(pending[0].0, expected_key);
 }
 
@@ -206,62 +205,4 @@ fn prune_fired_removes_stale_keys() {
     prune_fired(&mut fired, now);
     assert!(!fired.contains(&format!("a@{}", old.timestamp())));
     assert!(fired.contains(&format!("b@{}", fresh.timestamp())));
-}
-
-#[test]
-fn config_defaults_on_missing_file() {
-    let p = std::env::temp_dir().join("shadowdate_service_missing.toml");
-    std::fs::remove_file(&p).ok();
-    let cfg = ServiceConfig::load(&p);
-    assert_eq!(cfg.reminders.lead_min, 10);
-    assert_eq!(cfg.reminders.all_day_hour, 9);
-    assert_eq!(cfg.reminders.all_day_minute, 0);
-}
-
-#[test]
-fn config_defaults_on_invalid_content() {
-    let p = std::env::temp_dir().join("shadowdate_service_bad.toml");
-    std::fs::write(&p, "not = [valid").unwrap();
-    let cfg = ServiceConfig::load(&p);
-    assert_eq!(cfg.reminders.lead_min, 10);
-    std::fs::remove_file(&p).ok();
-}
-
-#[test]
-fn config_clamps_out_of_range_values() {
-    // A hand-edited config with absurd hours/minutes must not panic the daemon
-    // when scheduling; values are clamped to valid ranges instead.
-    let p = std::env::temp_dir().join("shadowdate_service_clamp.toml");
-    std::fs::write(
-        &p,
-        "[reminders]\nlead_min = 5000\nall_day_hour = 99\nall_day_minute = 99\n",
-    )
-    .unwrap();
-    let cfg = ServiceConfig::load(&p);
-    assert_eq!(
-        cfg.reminders.lead_min,
-        shadowdate::service::MAX_LEAD_MIN,
-        "lead must clamp to the shared MAX_LEAD_MIN contract"
-    );
-    assert_eq!(cfg.reminders.all_day_hour, 23);
-    assert_eq!(cfg.reminders.all_day_minute, 59);
-    std::fs::remove_file(&p).ok();
-}
-
-#[test]
-fn config_save_load_roundtrip() {
-    let p = std::env::temp_dir().join("shadowdate_service_rt.toml");
-    let cfg = ServiceConfig {
-        reminders: shadowdate::service::Reminders {
-            lead_min: 30,
-            all_day_hour: 8,
-            all_day_minute: 45,
-        },
-    };
-    cfg.save(&p).unwrap();
-    let back = ServiceConfig::load(&p);
-    assert_eq!(back.reminders.lead_min, 30);
-    assert_eq!(back.reminders.all_day_hour, 8);
-    assert_eq!(back.reminders.all_day_minute, 45);
-    std::fs::remove_file(&p).ok();
 }

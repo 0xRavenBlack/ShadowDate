@@ -1,9 +1,10 @@
 mod calendar_view;
 mod form_dialog;
 mod images;
-mod service_settings;
+mod settings;
 mod ui;
 
+use shadowdate::config::ServiceConfig;
 use shadowdate::ical_export::{export_ics, PRODID};
 use shadowdate::ical_import::import_ics_with_warnings;
 use shadowdate::i18n;
@@ -289,7 +290,7 @@ fn build_ui(app: &Application) {
 /// action buttons on the right. The view owns its nav/new buttons, so they are
 /// appended here from the view. Returns the Import/Export buttons so their
 /// handlers can be wired separately.
-fn build_header(window: &ApplicationWindow, cv: &CalendarView) -> (HeaderBar, Button, Button) {
+fn build_header(window: &ApplicationWindow, cv: &Rc<CalendarView>) -> (HeaderBar, Button, Button) {
     let header = HeaderBar::new();
     // Hide the default icon close button; provide a textual "Exit" button instead.
     header.set_show_title_buttons(false);
@@ -331,7 +332,16 @@ fn build_header(window: &ApplicationWindow, cv: &CalendarView) -> (HeaderBar, Bu
 
     settings_btn.connect_clicked({
         let window = window.clone();
-        move |_| service_settings::run_service_settings(&window)
+        let cv = cv.clone();
+        move |_| {
+            let cv = cv.clone();
+            settings::run_settings(
+                &window,
+                Some(std::boxed::Box::new(move |cfg: &ServiceConfig| {
+                    cv.set_portrait_visible(cfg.appearance.show_portrait);
+                })),
+            )
+        }
     });
 
     (header, import_btn, export_btn)

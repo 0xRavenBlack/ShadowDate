@@ -23,7 +23,7 @@ Cargo.toml              # [[bin]] shadowdate + [[bin]] shadowdate-service + [lib
                         # deps: gtk4 (0.11), glib/gio (0.22), ical, chrono, chrono-tz, uuid,
                         # anyhow, resvg, serde (derive), toml
 src/
-  lib.rs                # pub mod model; pub mod ical_import; pub mod ical_export;
+  lib.rs                # pub mod config; pub mod model; pub mod ical_import; pub mod ical_export;
                         # pub mod rrule; pub mod store_io; pub mod i18n; pub mod paths; pub mod service
   main.rs               # app bootstrap, window, headerbar, file choosers, AppContext
   model.rs              # Appointment struct + in-memory Store (keyed by UID)
@@ -33,19 +33,21 @@ src/
   store_io.rs           # atomic load/save/write_atomic, backup_corrupt, merge_store
   calendar_view.rs      # month grid (dots + keyboard nav), day list, background portrait
   form_dialog.rs        # create/edit/delete appointment dialog (620x520, non-resizable, fits the window); Cancel/Save live in the form (right-aligned), time uses a SpinButton grid, Delete asks for confirmation
-  service_settings.rs   # ⚙️ reminders config dialog (lead time, all-day time, service start/stop/test)
+  settings.rs           # ⚙️ app settings dialog (appearance, reminder timing, service start/stop/test)
   i18n.rs               # translations (EN/DE/FR/ES/ZH/JA/PL), date + weekday formatting (in the lib)
   images.rs             # embedded logo + portrait (include_bytes!), decoded to gdk::Texture
   paths.rs              # XDG data/config path helpers (data_path, config_path)
-  service.rs            # ServiceConfig (toml), reminder_time, pending_reminders, notify, fired_key
+  config.rs             # ServiceConfig/Reminders/Appearance (toml), MAX_LEAD_MIN, load/save/sanitize
+  service.rs            # reminder scheduling (reminder_time, pending_reminders, prune_fired) + D-Bus notify
   bin/
     shadowdate-service.rs # headless daemon: owns a D-Bus name, polls .ics + config, notifies
-  main.rs / calendar_view.rs / form_dialog.rs / service_settings.rs use `shadowdate::i18n`
+  main.rs / calendar_view.rs / form_dialog.rs / settings.rs use `shadowdate::i18n`
   and the rest of the lib crate via `shadowdate::*`
 tests/
+  service.rs            # scheduling + config integration tests (no D-Bus)
+  config.rs             # config load/clamp/save round-trip tests
   ics.rs                # integration tests: ics round-trip, RRULE expansion, TZID,
                         # escaping, series delete (calendar_view has grid unit tests)
-  service.rs            # unit tests for reminder_time / pending_reminders / config (no D-Bus)
 resources/
   style.css             # dark pastel theme (loaded at runtime via CssProvider)
   svg/
@@ -113,7 +115,10 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   `face.svg` (embedded, rasterized by `resvg`) sits behind as a translucent backdrop
   (`.bg-portrait`, `opacity: 0.30`), aligned to the start (left), full height, uniform
   width (aspect ratio preserved). Day cells are semi-transparent (`rgba(...)`) so the
-  portrait shows through.
+  portrait shows through. Its visibility is a setting (`[appearance] show_portrait` in
+  the config, default `true`) toggled from the ⚙️ dialog; hiding it calls
+  `CalendarView::set_portrait_visible(false)` (the widget stays in the overlay so
+  layout is unaffected).
 - **Month grid cells**: the `Grid` is `column_homogeneous` / `row_homogeneous`
   and always renders a solid 6×7 frame: days from the previous/next month fill
   the first/last rows and are dimmed (`.day-cell.other-month`), so the grid never
@@ -155,9 +160,11 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   deleting an occurrence acts on the **whole series** (`series_uid`); editing replaces
   the series with the single submitted (now non-recurring) appointment.
 - **Reminder service**: `src/service.rs` holds the pure scheduling logic
-  (`ServiceConfig` + serde/toml, `reminder_time`, `pending_reminders`,
-  `prune_fired`, `fired_key`) and the D-Bus plumbing (`notification_proxy`,
-  `notify` via the freedesktop Notification Protocol on the session bus).
+  (`reminder_time`, `pending_reminders`, `prune_fired`, `fired_key`) and the
+  D-Bus plumbing (`notification_proxy`, `notify` via the freedesktop
+  Notification Protocol on the session bus). The settings it reads
+  (`ServiceConfig` + serde/toml) live in `src/config.rs`, shared with the app's
+  ⚙️ dialog.
   `pending_reminders` is a **pure function** (no I/O) so the dedupe / due-window
   rules are unit-tested in `tests/service.rs` without a daemon. The store is
   fully RRULE-expanded, so scheduling is straight off `Store`. Rules: timed
@@ -174,7 +181,7 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   last good one on parse errors. The app saves the `.ics` **atomically**
   (`write_atomic`: temp file + rename) so the daemon never reads a torn file.
   Config lives at `$XDG_CONFIG_HOME/shadowdate/service.toml` (`paths::config_path`).
-  The app's ⚙️ **Settings** dialog (`service_settings.rs`) edits the config, tests
+  The app's ⚙️ **Settings** dialog (`settings.rs`) edits the config, tests
   notifications, and starts/stops the systemd user unit `shadowdate-service`
   (`systemctl --user enable/disable --now`), detecting running state via
   D-Bus `NameHasOwner`.
@@ -245,5 +252,5 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   **`pkgver` in `PKGBUILD` is the single source of truth for the version number**:
   always take the version from there and mirror it into `Cargo.toml` (`[package]
   version`), keeping the two in sync.
-- Add a reminder setting: update `Reminders` in `service.rs` (serde fields), the
-  UI in `service_settings.rs`, and the `tests/service.rs` config round-trip test.
+- Add a reminder setting: update `Reminders` in `config.rs` (serde fields), the
+  UI in `settings.rs`, and the `tests/config.rs` round-trip test.

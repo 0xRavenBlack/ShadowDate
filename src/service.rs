@@ -1,23 +1,22 @@
-//! Reminder scheduling + config shared by the `shadowdate` app and the
+//! Reminder scheduling + notification, shared by the `shadowdate` app and the
 //! `shadowdate-service` notification daemon.
 //!
 //! The on-disk `.ics` store is fully RRULE-expanded (every occurrence is its own
 //! `VEVENT`), so the daemon schedules reminders straight off the imported
 //! `Store` with no recurrence logic. Timed events are reminded `lead_min`
 //! minutes before `start`; all-day events are reminded once, at
-//! `all_day_hour:all_day_minute` on their start date.
+//! `all_day_hour:all_day_minute` on their start date. The settings themselves
+//! (including the app's appearance preferences) live in [`crate::config`].
 //!
 //! `pending_reminders` is a pure function (no I/O) so the dedupe / due-window
 //! rules are unit-testable without a D-Bus daemon.
 
+use crate::config::ServiceConfig;
 use crate::model::{Appointment, Store};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, TimeDelta};
 use gio::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
 
 /// Application id, also the themed icon name and the D-Bus notification
 /// `desktop-entry` hint.
@@ -32,87 +31,6 @@ const NOTIFY_PATH: &str = "/org/freedesktop/Notifications";
 
 /// How long a fired reminder stays in the dedupe set before being pruned.
 const FIRED_RETENTION: TimeDelta = TimeDelta::hours(6);
-
-/// Maximum reminder lead time. A lead of more than a day warns absurdly early.
-/// Single source of truth shared by the settings dialog spin range and the
-/// config sanitizer, so the UI and the file-backed contract can't drift.
-pub const MAX_LEAD_MIN: u32 = 24 * 60;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ServiceConfig {
-    #[serde(default)]
-    pub reminders: Reminders,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Reminders {
-    /// Minutes before a timed event's start at which its reminder fires.
-    pub lead_min: u32,
-    /// Wall-clock time at which all-day events are reminded (on their start date).
-    pub all_day_hour: u32,
-    pub all_day_minute: u32,
-}
-
-impl Default for Reminders {
-    fn default() -> Self {
-        Self {
-            lead_min: 10,
-            all_day_hour: 9,
-            all_day_minute: 0,
-        }
-    }
-}
-
-impl ServiceConfig {
-    /// Load the config from `path`. A missing or unreadable file yields the
-    /// defaults; an unparseable file yields the defaults plus a warning.
-    pub fn load(path: &Path) -> ServiceConfig {
-        if path.as_os_str().is_empty() || !path.exists() {
-            return ServiceConfig::default();
-        }
-        match fs::read_to_string(path) {
-            Ok(content) => match toml::from_str::<ServiceConfig>(&content) {
-                // Sanitize hand-edited values so the daemon can never panic on an
-                // out-of-range wall-clock time (see `sanitize_config`).
-                Ok(cfg) => sanitize_config(cfg),
-                Err(e) => {
-                    eprintln!(
-                        "warning: invalid service config {} ({}); using defaults",
-                        path.display(),
-                        e
-                    );
-                    ServiceConfig::default()
-                }
-            },
-            Err(e) => {
-                eprintln!(
-                    "warning: reading service config {}: {}; using defaults",
-                    path.display(),
-                    e
-                );
-                ServiceConfig::default()
-            }
-        }
-    }
-
-    /// Write the config to `path` (atomically, like the `.ics` store).
-    pub fn save(&self, path: &Path) -> Result<()> {
-        let data = toml::to_string(self).context("serializing service config")?;
-        crate::store_io::write_atomic(path, &data)
-    }
-}
-
-/// Clamp reminder config values to valid ranges. The settings dialog already
-/// constrains its inputs, but the config file is user-editable and the daemon
-/// reads it directly: a bad hour/minute would otherwise panic `make_datetime`
-/// (release builds use `panic = "abort"`, so the unit would crash-loop).
-fn sanitize_config(mut cfg: ServiceConfig) -> ServiceConfig {
-    cfg.reminders.all_day_hour = cfg.reminders.all_day_hour.min(23);
-    cfg.reminders.all_day_minute = cfg.reminders.all_day_minute.min(59);
-    // A lead of more than a day warns absurdly early; cap it to `MAX_LEAD_MIN`.
-    cfg.reminders.lead_min = cfg.reminders.lead_min.min(MAX_LEAD_MIN);
-    cfg
-}
 
 /// When an appointment's reminder should fire. Timed events are reminded
 /// `lead_min` minutes early; all-day events at the configured morning time on

@@ -1,3 +1,4 @@
+pub mod config;
 pub mod ical_export;
 pub mod ical_import;
 pub mod i18n;

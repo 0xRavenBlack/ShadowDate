@@ -166,10 +166,11 @@ shadowdate/
 │   ├── store_io.rs        # atomic save / load / backup / merge
 │   ├── calendar_view.rs   # month grid + day list
 │   ├── form_dialog.rs     # create / edit / delete dialog
-│   ├── service_settings.rs # ⚙️ reminders config dialog
+│   ├── settings.rs       # ⚙️ app settings dialog (appearance + reminders)
 │   ├── i18n.rs            # 🌍 translations
 │   ├── images.rs          # embedded logo & portrait
 │   ├── paths.rs           # XDG data / config paths
+│   ├── config.rs          # app config (reminders + appearance)
 │   ├── service.rs         # reminder scheduling + notification (shared)
 │   └── bin/
 │       └── shadowdate-service.rs  # 🔔 headless reminder daemon
@@ -179,6 +180,7 @@ shadowdate/
 │   └── img/               # screenshot (README only)
 └── 🧪 tests/
     ├── ics.rs
+    ├── config.rs
     └── service.rs
 ```
 

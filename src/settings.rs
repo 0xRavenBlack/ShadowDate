@@ -1,29 +1,35 @@
-//! Service settings dialog: configure reminder timing, test notifications, and
-//! start/stop the background `shadowdate-service` via its systemd user unit.
+//! App settings dialog: appearance, reminder timing, test notifications, and
+//! start/stop of the background `shadowdate-service` via its systemd user unit.
 //!
 //! The config is persisted to `$XDG_CONFIG_HOME/shadowdate/service.toml`; the
-//! daemon watches that file and picks up changes without a restart.
+//! daemon watches that file and picks up changes without a restart. The
+//! optional `on_saved` callback lets the app apply UI settings (e.g. the
+//! background portrait) live after a successful save.
 
 use crate::ui::{section_box, show_error, time_spin};
+use shadowdate::config::{ServiceConfig, MAX_LEAD_MIN};
 use shadowdate::i18n;
 use shadowdate::paths;
-use shadowdate::service::{self, ServiceConfig, MAX_LEAD_MIN, SERVICE_NAME};
+use shadowdate::service::{self, SERVICE_NAME};
 use gtk::prelude::*;
-use gtk::{Box, Button, Dialog, Label, ResponseType, SpinButton};
+use gtk::{Box, Button, CheckButton, Dialog, Label, ResponseType, SpinButton};
 use std::cell::RefCell;
 use std::process::Command;
 use std::rc::Rc;
 
 const SYSTEMD_UNIT: &str = "shadowdate-service";
 
-pub fn run_service_settings(parent: &impl IsA<gtk::Window>) {
+/// Invoked after a successful save so the app can apply UI settings live.
+type SettingsApplied = std::boxed::Box<dyn Fn(&ServiceConfig)>;
+
+pub fn run_settings(parent: &impl IsA<gtk::Window>, on_saved: Option<SettingsApplied>) {
     let dlg = Dialog::with_buttons(
-        Some(i18n::t("service_settings")),
+        Some(i18n::t("settings")),
         Some(parent),
         gtk::DialogFlags::MODAL,
         &[],
     );
-    dlg.set_default_size(560, 400);
+    dlg.set_default_size(560, 470);
     dlg.set_resizable(false);
 
     let content = dlg.content_area();
@@ -39,6 +45,18 @@ pub fn run_service_settings(parent: &impl IsA<gtk::Window>) {
     content.append(&form);
 
     let cfg = Rc::new(RefCell::new(ServiceConfig::load(&paths::config_path())));
+
+    // --- Appearance ---
+    let appearance_heading = Label::new(Some(i18n::t("appearance")));
+    appearance_heading.add_css_class("form-section-title");
+    appearance_heading.set_xalign(0.0);
+    form.append(&appearance_heading);
+
+    let appearance_section = section_box();
+    let portrait_check = CheckButton::with_label(i18n::t("show_background"));
+    portrait_check.set_active(cfg.borrow().appearance.show_portrait);
+    appearance_section.append(&portrait_check);
+    form.append(&appearance_section);
 
     // --- Reminders ---
     let rem_heading = Label::new(Some(i18n::t("reminders")));
@@ -171,12 +189,20 @@ pub fn run_service_settings(parent: &impl IsA<gtk::Window>) {
 
     dlg.connect_response(move |d, resp| {
         if resp == ResponseType::Accept {
-            let mut cfg = cfg.borrow_mut();
-            cfg.reminders.lead_min = lead_spin.value_as_int().max(0) as u32;
-            cfg.reminders.all_day_hour = ad_hour.value_as_int().clamp(0, 23) as u32;
-            cfg.reminders.all_day_minute = ad_min.value_as_int().clamp(0, 59) as u32;
-            match cfg.save(&paths::config_path()) {
-                Ok(()) => d.close(),
+            {
+                let mut cfg = cfg.borrow_mut();
+                cfg.reminders.lead_min = lead_spin.value_as_int().max(0) as u32;
+                cfg.reminders.all_day_hour = ad_hour.value_as_int().clamp(0, 23) as u32;
+                cfg.reminders.all_day_minute = ad_min.value_as_int().clamp(0, 59) as u32;
+                cfg.appearance.show_portrait = portrait_check.is_active();
+            }
+            match cfg.borrow().save(&paths::config_path()) {
+                Ok(()) => {
+                    if let Some(on_saved) = &on_saved {
+                        on_saved(&cfg.borrow());
+                    }
+                    d.close();
+                }
                 Err(e) => show_error(d, &e.to_string()),
             }
         } else {
