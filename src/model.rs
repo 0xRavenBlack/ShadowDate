@@ -121,12 +121,15 @@ impl Store {
         self.index.get(uid).map(|&i| &self.items[i])
     }
 
-    pub fn on_date(&self, date: NaiveDate) -> Vec<Appointment> {
-        let mut v: Vec<Appointment> = self
+    /// Appointments that fall on `date`, sorted by start time, as borrowed
+    /// references. Rendering the month grid calls this once per cell; returning
+    /// references (rather than clones) keeps a 4000-event store cheap to redraw.
+    pub fn on_date(&self, date: NaiveDate) -> Vec<&Appointment> {
+        let mut v: Vec<&Appointment> = self
             .items
             .iter()
             .filter(|a| {
-                let sd = a.start.date_naive();
+                let sd = a.date();
                 let ed = a.end.date_naive();
                 if a.all_day {
                     // iCalendar all-day DTEND is exclusive (start of the day after).
@@ -136,7 +139,6 @@ impl Store {
                     date >= sd && date <= ed
                 }
             })
-            .cloned()
             .collect();
         v.sort_by_key(|a| a.start);
         v

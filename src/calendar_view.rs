@@ -298,6 +298,10 @@ impl CalendarView {
         let first_weekday = first.weekday().num_days_from_monday() as i32;
         let t = today();
 
+        // Borrow the store once for the whole frame so each cell's `on_date`
+        // lookup returns borrowed references instead of cloning appointments.
+        let store = self.ctx.store().borrow();
+
         // Render the full 6x7 frame so the grid is always a solid rectangle.
         // Cells before the 1st and after the last day come from the previous/next
         // month and are dimmed; clicking one navigates to its month.
@@ -307,7 +311,7 @@ impl CalendarView {
                 let offset = cell_offset(first_weekday, cell_index);
                 let date = first + chrono::TimeDelta::days(offset as i64);
                 let other_month = date.year() != view_year || date.month() != view_month;
-                let appts: Vec<Appointment> = self.ctx.store().borrow().on_date(date);
+                let appts: Vec<&Appointment> = store.on_date(date);
                 let is_today = date == t;
                 let is_selected = date == selected;
                 let cell = build_cell(
@@ -343,7 +347,8 @@ impl CalendarView {
         }
         let s = self.state.borrow();
         self.day_label.set_text(&shadowdate::i18n::format_date(s.selected));
-        let appts: Vec<Appointment> = self.ctx.store().borrow().on_date(s.selected);
+        let store = self.ctx.store().borrow();
+        let appts = store.on_date(s.selected);
         for a in &appts {
             let row = build_appt_row(a);
             let uid = a.uid.clone();
@@ -411,8 +416,9 @@ fn build_cell(
     other_month: bool,
     is_today: bool,
     is_selected: bool,
-    appts: &[Appointment],
-) -> Box {    let cell = Box::new(gtk::Orientation::Vertical, 2);
+    appts: &[&Appointment],
+) -> Box {
+    let cell = Box::new(gtk::Orientation::Vertical, 2);
     cell.add_css_class("day-cell");
     cell.set_valign(gtk::Align::Fill);
     if other_month {

@@ -54,7 +54,6 @@ pub fn portrait_widget() -> Option<gtk::Picture> {
     let pic = gtk::Picture::for_paintable(&tex);
     pic.set_can_shrink(true);
     pic.set_keep_aspect_ratio(true);
-    pic.add_css_class("portrait-accent");
     Some(pic)
 }
 

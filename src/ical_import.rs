@@ -18,28 +18,17 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-/// Parse an .ics file into a Store. Recurring events (RRULE) are expanded into
-/// individual occurrence appointments so the existing grid/list rendering works
-/// without change. Each occurrence keeps the base event's UID in `series_uid`.
+/// Parse an .ics file into a Store, returning a human-readable warning for each
+/// calendar/event that had to be skipped. Recurring events (RRULE) are expanded
+/// into individual occurrence appointments so the existing grid/list rendering
+/// works without change. Each occurrence keeps the base event's UID in
+/// `series_uid`.
 ///
 /// Parsing is tolerant: a malformed calendar or event is skipped with a warning
 /// instead of failing the whole import, so a single bad line can never wipe the
 /// rest of the calendar. Only a file that cannot be read at all yields an error.
-pub fn import_ics(path: &Path) -> Result<Store> {
-    let (store, warnings) = import_ics_with_warnings(path)?;
-    if !warnings.is_empty() {
-        eprintln!(
-            "warning: importing {}: {} entries skipped",
-            path.display(),
-            warnings.len()
-        );
-    }
-    Ok(store)
-}
-
-/// Like [`import_ics`], but also returns a human-readable warning for each
-/// calendar/event that had to be skipped. Callers can surface the warnings and
-/// back up a partially-corrupt file before the next save overwrites it.
+/// Callers must handle (or deliberately ignore) the warnings — this is the only
+/// import entry point, so a skipped event is never silently dropped.
 pub fn import_ics_with_warnings(path: &Path) -> Result<(Store, Vec<String>)> {
     // Read as bytes and strip a UTF-8 BOM: some editors/exports prepend one,
     // and the `ical` lexer would otherwise choke on the invisible U+FEFF before
