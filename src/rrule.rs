@@ -16,11 +16,16 @@ use std::collections::HashSet;
 const MAX_OCCURRENCES: usize = 4000;
 const MAX_EXPAND_YEARS: i32 = 20;
 
-/// Expand a recurrence rule into (start, end) pairs. Returns an empty vec when
-/// the rule is unsupported or yields nothing. Covers the common cases:
-/// FREQ=DAILY|WEEKLY|MONTHLY|YEARLY with INTERVAL, COUNT, UNTIL, BYDAY,
-/// BYMONTHDAY and BYMONTH. Dates in `exclude` (from EXDATE) are removed from
-/// the result; dates in `extra` (from RDATE) are appended.
+/// The (start, end) pairs of a single expanded occurrence.
+type Occurrence = (DateTime<Local>, DateTime<Local>);
+
+/// Expand a recurrence rule into (start, end) pairs. `Err` means the rule
+/// cannot be expanded at all (missing or unrecognized FREQ) — the caller keeps
+/// the base occurrence and surfaces a warning rather than degrading silently.
+/// Covers the common cases: FREQ=DAILY|WEEKLY|MONTHLY|YEARLY with INTERVAL,
+/// COUNT, UNTIL, BYDAY, BYMONTHDAY and BYMONTH. Dates in `exclude` (from
+/// EXDATE) are removed from the result; dates in `extra` (from RDATE) are
+/// appended, bounded by the same cap as the base expansion.
 pub(crate) fn expand_recurrence(
     start: DateTime<Local>,
     end: DateTime<Local>,
@@ -28,15 +33,9 @@ pub(crate) fn expand_recurrence(
     rrule: &str,
     exclude: &HashSet<NaiveDate>,
     extra: &[NaiveDate],
-) -> Vec<(DateTime<Local>, DateTime<Local>)> {
-    let rule = match RRule::parse(rrule) {
-        Some(r) => r,
-        None => return Vec::new(),
-    };
-    let freq = match rule.freq {
-        Some(f) => f,
-        None => return Vec::new(),
-    };
+) -> Result<Vec<Occurrence>, String> {
+    let rule = RRule::parse(rrule).ok_or_else(|| "missing or unrecognized FREQ".to_string())?;
+    let freq = rule.freq.ok_or_else(|| "missing FREQ".to_string())?;
 
     // Duration carried by each occurrence.
     let duration = if all_day {
@@ -121,7 +120,7 @@ pub(crate) fn expand_recurrence(
                 } else if !rule.byday.is_empty() {
                     rule.byday
                         .iter()
-                        .filter_map(|(wd, pos)| nth_weekday_in_month(year, month, *wd, *pos))
+                        .flat_map(|(wd, pos)| weekday_dates_in_month(year, month, *wd, *pos))
                         .collect()
                 } else {
                     month_day_to_date(year, month, base_date.day() as i32)
@@ -158,7 +157,7 @@ pub(crate) fn expand_recurrence(
                     } else if !rule.byday.is_empty() {
                         rule.byday
                             .iter()
-                            .filter_map(|(wd, pos)| nth_weekday_in_month(year, m, *wd, *pos))
+                            .flat_map(|(wd, pos)| weekday_dates_in_month(year, m, *wd, *pos))
                             .collect()
                     } else {
                         month_day_to_date(year, m, base_date.day() as i32)
@@ -178,16 +177,18 @@ pub(crate) fn expand_recurrence(
 
     // Apply EXDATE: remove excluded dates from the expanded set.
     dates.retain(|d| !exclude.contains(d));
-    // Apply RDATE: append extra dates that are >= base_date and not already present.
+    // Apply RDATE: append extra dates that are >= base_date and not already
+    // present, bounded by the same occurrence cap as the base expansion so a
+    // hostile file cannot grow the store beyond it.
     for &d in extra {
-        if d >= base_date && !dates.contains(&d) {
+        if d >= base_date && !dates.contains(&d) && dates.len() < MAX_OCCURRENCES {
             dates.push(d);
         }
     }
     dates.sort();
     dates.dedup();
 
-    finish(dates, base_date, base_time, duration, all_day)
+    Ok(finish(dates, base_date, base_time, duration, all_day))
 }
 
 fn finish(
@@ -264,11 +265,15 @@ fn month_day_to_date(year: i32, month: u32, md: i32) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day as u32)
 }
 
-/// Nth weekday of a month. `pos` is 1-based (1 = first, 2 = second, ...);
-/// negative counts from the end (-1 = last). `None` means "every" (used for
-/// weekly-style BYDAY in a monthly context -> first match).
-fn nth_weekday_in_month(year: i32, month: u32, wd: Weekday, pos: Option<i32>) -> Option<NaiveDate> {
-    let first = NaiveDate::from_ymd_opt(year, month, 1)?;
+/// Resolve a BYDAY token to the concrete dates it denotes in a month. `pos` is
+/// 1-based (1 = first, 2 = second, ...); negative counts from the end (-1 =
+/// last). `None` means *every* occurrence of the weekday in the month (RFC
+/// 5545: `FREQ=MONTHLY;BYDAY=MO` matches all Mondays, not just the first).
+fn weekday_dates_in_month(year: i32, month: u32, wd: Weekday, pos: Option<i32>) -> Vec<NaiveDate> {
+    let first = match NaiveDate::from_ymd_opt(year, month, 1) {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
     let first_wd = date_of_weekday_in_week(first, wd, Weekday::Mon);
     // First occurrence may be in the previous month; shift forward.
     let first_occ = if first_wd.month() == month {
@@ -277,7 +282,16 @@ fn nth_weekday_in_month(year: i32, month: u32, wd: Weekday, pos: Option<i32>) ->
         first_wd + TimeDelta::weeks(1)
     };
     match pos {
-        Some(p) if p > 0 => Some(first_occ + TimeDelta::weeks((p - 1) as i64)),
+        Some(p) if p > 0 => {
+            let d = first_occ + TimeDelta::weeks((p - 1) as i64);
+            // An out-of-range ordinal (e.g. 5th Monday in a 4-Monday month)
+            // matches nothing, not a date in the next month.
+            if d.month() == month {
+                vec![d]
+            } else {
+                Vec::new()
+            }
+        }
         Some(p) if p < 0 => {
             // Last (or p-th from last) occurrence.
             let mut last = first_occ;
@@ -291,12 +305,25 @@ fn nth_weekday_in_month(year: i32, month: u32, wd: Weekday, pos: Option<i32>) ->
             let total = ((last - first_occ).num_days() / 7) as i32 + 1;
             let idx = (total + p) as i64;
             if idx < 0 {
-                None
+                Vec::new()
             } else {
-                Some(first_occ + TimeDelta::weeks(idx))
+                let d = first_occ + TimeDelta::weeks(idx);
+                if d.month() == month {
+                    vec![d]
+                } else {
+                    Vec::new()
+                }
             }
         }
-        _ => Some(first_occ),
+        _ => {
+            let mut out = Vec::new();
+            let mut d = first_occ;
+            while d.month() == month {
+                out.push(d);
+                d += TimeDelta::weeks(1);
+            }
+            out
+        }
     }
 }
 
@@ -332,9 +359,15 @@ impl RRule {
             bymonth: Vec::new(),
         };
         for part in s.split(';') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
             let mut kv = part.splitn(2, '=');
-            let key = kv.next()?.trim().to_ascii_uppercase();
-            let val = kv.next()?.trim();
+            let Some(key) = kv.next() else { continue };
+            let Some(val) = kv.next() else { continue };
+            let key = key.trim().to_ascii_uppercase();
+            let val = val.trim();
             match key.as_str() {
                 "FREQ" => {
                     r.freq = match val.to_ascii_uppercase().as_str() {

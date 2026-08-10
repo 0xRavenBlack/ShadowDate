@@ -209,6 +209,9 @@ pub fn t(key: &str) -> &'static str {
             "終日",
             "Cały dzień",
         ),
+        "days" => (
+            "Days", "Tage", "Jours", "Días", "天数", "日数", "Dni",
+        ),
         "hours" => (
             "Hours", "Stunden", "Heures", "Horas", "小时", "時", "Godziny",
         ),
@@ -397,6 +400,7 @@ pub fn t(key: &str) -> &'static str {
         ),
         _ => {
             debug_assert!(false, "i18n: unknown translation key: {key}");
+            eprintln!("i18n: unknown translation key: {key}");
             ("???", "???", "???", "???", "???", "???", "???")
         }
     };
@@ -428,6 +432,13 @@ pub fn weekday_abbrevs() -> [&'static str; 7] {
         Lang::Ja => ["月", "火", "水", "木", "金", "土", "日"],
         Lang::Pl => ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"],
     }
+}
+
+/// Positions (0 = Monday .. 6 = Sunday) in [`weekday_abbrevs`] that are weekend
+/// days for the active locale. All supported locales currently observe
+/// Saturday + Sunday, but styling should not hardcode column indices.
+pub fn weekend_indices() -> &'static [usize] {
+    &[5, 6]
 }
 
 fn full_weekday(idx: usize) -> &'static str {
@@ -496,6 +507,29 @@ fn full_month(idx: usize) -> &'static str {
     table[lang_index()][idx]
 }
 
+/// Month form to use after a bare day number. Polish declines month names, so
+/// "5 sierpnia" (genitive) is correct while the nominative "5 sierpień" is not.
+fn full_month_after_day(idx: usize) -> &'static str {
+    const PL_GENITIVE: [&str; 12] = [
+        "stycznia",
+        "lutego",
+        "marca",
+        "kwietnia",
+        "maja",
+        "czerwca",
+        "lipca",
+        "sierpnia",
+        "września",
+        "października",
+        "listopada",
+        "grudnia",
+    ];
+    match lang() {
+        Lang::Pl => PL_GENITIVE[idx],
+        _ => full_month(idx),
+    }
+}
+
 fn lang_index() -> usize {
     match lang() {
         Lang::En => 0,
@@ -531,7 +565,7 @@ pub fn format_date(d: NaiveDate) -> String {
         Lang::Fr => format!("{} {} {} {}", wd, day, m, year),
         Lang::Es => format!("{}, {} de {} de {}", wd, day, m, year),
         Lang::Zh | Lang::Ja => format!("{}年{}{}日 {}", year, m, day, wd),
-        Lang::Pl => format!("{}, {} {} {}", wd, day, m, year),
+        Lang::Pl => format!("{}, {} {} {}", wd, day, full_month_after_day((d.month() - 1) as usize), year),
     }
 }
 

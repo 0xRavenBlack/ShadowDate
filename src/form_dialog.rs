@@ -74,17 +74,25 @@ pub fn run_appointment_dialog(
     let end_hour = time_spin(23.0);
     let end_min = time_spin(59.0);
     let all_day = CheckButton::builder().label(shadowdate::i18n::t("all_day")).build();
+    let all_day_days = SpinButton::with_range(1.0, 366.0, 1.0);
+    all_day_days.set_digits(0);
+    all_day_days.set_numeric(true);
+    all_day_days.set_width_chars(3);
 
     if let Some(a) = existing {
         title_entry.set_text(&a.title);
         desc_entry.set_text(&a.description);
         loc_entry.set_text(&a.location);
-        select_calendar_day(&cal, a.start.date_naive());
+        select_calendar_day(&cal, a.date());
         start_hour.set_value(a.start.hour() as f64);
         start_min.set_value(a.start.minute() as f64);
         end_hour.set_value(a.end.hour() as f64);
         end_min.set_value(a.end.minute() as f64);
         all_day.set_active(a.all_day);
+        if a.all_day {
+            let days = (a.end.date_naive() - a.date()).num_days().max(1);
+            all_day_days.set_value(days as f64);
+        }
     } else {
         select_calendar_day(&cal, initial_date);
         start_hour.set_value(9.0);
@@ -160,7 +168,18 @@ pub fn run_appointment_dialog(
     time_grid.attach(&end_min, 3, 2, 1, 1);
 
     dt_section.append(&time_grid);
-    dt_section.append(&all_day);
+
+    // All-day events get a day-count spinner (multi-day all-day events exist via
+    // import and must survive an edit without collapsing to a single day). The
+    // days spinner is only meaningful while "All day" is checked.
+    let all_day_row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    all_day_row.append(&all_day);
+    let days_lbl = Label::new(Some(shadowdate::i18n::t("days")));
+    days_lbl.add_css_class("form-label");
+    days_lbl.set_valign(gtk::Align::Center);
+    all_day_row.append(&days_lbl);
+    all_day_row.append(&all_day_days);
+    dt_section.append(&all_day_row);
 
     // Action row: Delete (left) … Cancel Save (right), all on one line under
     // the all-day checkbox.
@@ -238,10 +257,12 @@ pub fn run_appointment_dialog(
             end_hour.clone(),
             end_min.clone(),
         ];
+        let days = all_day_days.clone();
         let apply = move |active: bool| {
             for w in &widgets {
                 w.set_sensitive(!active);
             }
+            days.set_sensitive(active);
         };
         apply(all_day.is_active());
         all_day.connect_toggled(move |cb| apply(cb.is_active()));
@@ -251,14 +272,14 @@ pub fn run_appointment_dialog(
     gtk::prelude::GtkWindowExt::set_focus(&dialog, Some(&title_entry));
     dialog.present();
 
-    let existing_owned: Option<Appointment> = existing.cloned();
+    let existing_uid: Option<String> = existing.map(|a| a.uid.clone());
     dialog.connect_response(move |d, response| {
-        if response == ResponseType::Cancel {
+        // Esc, the headerbar close button, and Cancel all arrive as a non-Accept
+        // response; the default close-request handler keeps the dialog alive, so
+        // dismiss it and report no result in every one of those cases.
+        if response != ResponseType::Accept {
             d.close();
             on_result(None);
-            return;
-        }
-        if response != ResponseType::Accept {
             return;
         }
         let fields = FormFields {
@@ -271,8 +292,9 @@ pub fn run_appointment_dialog(
             eh: &end_hour,
             em: &end_min,
             all_day: &all_day,
+            all_day_days: &all_day_days,
         };
-        match build_appointment(existing_owned.as_ref(), &fields) {
+        match build_appointment(existing_uid.as_deref(), &fields) {
             Ok(a) => {
                 d.close();
                 on_result(Some(a));
@@ -295,10 +317,11 @@ struct FormFields<'a> {
     eh: &'a SpinButton,
     em: &'a SpinButton,
     all_day: &'a CheckButton,
+    all_day_days: &'a SpinButton,
 }
 
 fn build_appointment(
-    existing: Option<&Appointment>,
+    existing_uid: Option<&str>,
     f: &FormFields,
 ) -> Result<Appointment, String> {
     let title_text = f.title.text().to_string();
@@ -327,14 +350,17 @@ fn build_appointment(
     let start = make_datetime(date, sh_v, sm_v);
     let mut end = make_datetime(date, eh_v, em_v);
     if all {
-        // iCalendar all-day DTEND is exclusive: store start of the day after.
-        end = start + chrono::TimeDelta::days(1);
+        // iCalendar all-day DTEND is exclusive (start of the day after the last
+        // covered day); the day count is user-controlled so a multi-day all-day
+        // event survives an edit.
+        let days = f.all_day_days.value_as_int().max(1) as i64;
+        end = start + chrono::TimeDelta::days(days);
     } else if end <= start {
         end = start + chrono::TimeDelta::hours(1);
     }
 
-    let (uid, series_uid) = match existing {
-        Some(ex) => (ex.uid.clone(), ex.uid.clone()),
+    let (uid, series_uid) = match existing_uid {
+        Some(u) => (u.to_string(), u.to_string()),
         None => {
             let uid = uuid::Uuid::new_v4().to_string();
             (uid.clone(), uid)

@@ -18,6 +18,9 @@ use std::process::Command;
 use std::rc::Rc;
 
 const SYSTEMD_UNIT: &str = "shadowdate-service";
+/// Bounded wait for the session bus during status polls, so a dead session bus
+/// can't freeze the settings dialog indefinitely.
+const BUS_TIMEOUT_MS: i32 = 2000;
 
 /// Invoked after a successful save so the app can apply UI settings live.
 type SettingsApplied = std::boxed::Box<dyn Fn(&ServiceConfig)>;
@@ -224,7 +227,7 @@ fn service_running() -> bool {
         Some(&(SERVICE_NAME,).to_variant()),
         None,
         gio::DBusCallFlags::NONE,
-        -1,
+        BUS_TIMEOUT_MS,
         None::<&gio::Cancellable>,
     );
     match reply {
@@ -261,11 +264,10 @@ fn poll_status(
     let status = status.clone();
     let enable_btn = enable_btn.clone();
     let disable_btn = disable_btn.clone();
-    let attempts = Rc::new(RefCell::new(0u32));
-    let attempts2 = attempts.clone();
+    let attempts = std::cell::Cell::new(0u32);
     glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
-        let n = *attempts2.borrow() + 1;
-        *attempts2.borrow_mut() = n;
+        let n = attempts.get() + 1;
+        attempts.set(n);
         let running = service_running();
         if running == wait_for_running || n >= 20 {
             set_status(&status, &enable_btn, &disable_btn, running);

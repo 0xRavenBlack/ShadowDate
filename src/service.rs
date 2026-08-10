@@ -110,8 +110,15 @@ fn is_due(appt: &Appointment, now: DateTime<Local>) -> bool {
 pub fn notification_proxy() -> Result<gio::DBusProxy> {
     let conn = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>)
         .map_err(|e| anyhow!("connecting to session bus: {}", e))?;
+    notification_proxy_on(&conn)
+}
+
+/// Build a notification-daemon proxy on an existing session connection. Shared
+/// by the app (which opens its own bus) and the reminder daemon (which already
+/// owns one), so the proxy setup cannot drift between the two.
+pub fn notification_proxy_on(conn: &gio::DBusConnection) -> Result<gio::DBusProxy> {
     gio::DBusProxy::new_sync(
-        &conn,
+        conn,
         gio::DBusProxyFlags::NONE,
         None,
         Some(NOTIFY_IFACE),
@@ -121,6 +128,11 @@ pub fn notification_proxy() -> Result<gio::DBusProxy> {
     )
     .map_err(|e| anyhow!("creating notification proxy: {}", e))
 }
+
+/// Max time to wait for the notification daemon to answer. A `call_sync` with
+/// `-1` blocks indefinitely; a hung daemon would otherwise stall the reminder
+/// daemon's single main loop or the app's UI thread.
+const NOTIFY_TIMEOUT_MS: i32 = 5000;
 
 /// Build the `Notify` method-call argument tuple `(susssasa{sv}i)`.
 ///
@@ -158,7 +170,7 @@ pub fn notify(
         "Notify",
         Some(&args),
         gio::DBusCallFlags::NONE,
-        -1,
+        NOTIFY_TIMEOUT_MS,
         None::<&gio::Cancellable>,
     )?;
     let (id,) = reply.get::<(u32,)>().unwrap_or((0,));

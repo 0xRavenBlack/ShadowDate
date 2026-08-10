@@ -26,7 +26,15 @@ use std::path::Path;
 /// instead of failing the whole import, so a single bad line can never wipe the
 /// rest of the calendar. Only a file that cannot be read at all yields an error.
 pub fn import_ics(path: &Path) -> Result<Store> {
-    import_ics_with_warnings(path).map(|(store, _)| store)
+    let (store, warnings) = import_ics_with_warnings(path)?;
+    if !warnings.is_empty() {
+        eprintln!(
+            "warning: importing {}: {} entries skipped",
+            path.display(),
+            warnings.len()
+        );
+    }
+    Ok(store)
 }
 
 /// Like [`import_ics`], but also returns a human-readable warning for each
@@ -56,13 +64,8 @@ pub(crate) fn parse_ics(content: &str) -> (Store, Vec<String>) {
             }
         };
         for event in cal.events {
-            match event_to_appointments(&event.properties) {
-                Ok(appts) => {
-                    for appt in appts {
-                        store.insert(appt);
-                    }
-                }
-                Err(e) => warnings.push(format!("skipping an invalid event: {}", e)),
+            for appt in event_to_appointments(&event.properties, &mut warnings) {
+                store.insert(appt);
             }
         }
     }
@@ -156,10 +159,18 @@ fn parse_naive_dt(raw: &str) -> Result<NaiveDateTime> {
         .map_err(|e| anyhow!("bad datetime {}: {}", raw, e))
 }
 
-fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
+/// Convert one VEVENT's properties into its appointment(s), appending a
+/// human-readable warning to `warnings` for anything that had to be skipped.
+/// Malformed events are skipped entirely (a warning); an RRULE that cannot be
+/// expanded keeps the base occurrence (a warning), so a bad rule never silently
+/// collapses the series or fails the rest of the import.
+fn event_to_appointments(props: &[Property], warnings: &mut Vec<String>) -> Vec<Appointment> {
     let uid = match prop_value(props, "UID") {
         Some(u) => u,
-        None => return Err(anyhow!("VEVENT without UID")),
+        None => {
+            warnings.push("skipping an invalid event: VEVENT without UID".to_string());
+            return Vec::new();
+        }
     };
     // Re-imported expanded occurrences carry the base event's UID in our
     // private X-SHADOWDATE-SERIES-UID marker (see `store_to_ics`); without it,
@@ -175,17 +186,32 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
     let location = unescape_text(&prop_value(props, "LOCATION").unwrap_or_default());
     let start_prop = match get_prop(props, "DTSTART") {
         Some(s) => s,
-        None => return Err(anyhow!("VEVENT without DTSTART")),
+        None => {
+            warnings.push(format!("skipping invalid event '{}': missing DTSTART", uid));
+            return Vec::new();
+        }
     };
     let start_raw = start_prop
         .value
         .clone()
-        .ok_or_else(|| anyhow!("DTSTART without value"))?;
-    let start = parse_ical_datetime(start_prop)?;
+        .unwrap_or_default();
+    let start = match parse_ical_datetime(start_prop) {
+        Ok(s) => s,
+        Err(e) => {
+            warnings.push(format!("skipping invalid event '{}': {}", uid, e));
+            return Vec::new();
+        }
+    };
     let all_day = start_raw.trim().len() == 8;
 
     let end = match get_prop(props, "DTEND") {
-        Some(e) => parse_ical_datetime(e)?,
+        Some(e) => match parse_ical_datetime(e) {
+            Ok(e) => e,
+            Err(e) => {
+                warnings.push(format!("skipping invalid event '{}': {}", uid, e));
+                return Vec::new();
+            }
+        },
         None if all_day => start + TimeDelta::days(1),
         None => start + TimeDelta::hours(1),
     };
@@ -217,19 +243,22 @@ fn event_to_appointments(props: &[Property]) -> Result<Vec<Appointment>> {
                 .filter(|p| p.name.eq_ignore_ascii_case("RDATE"))
                 .flat_map(parse_date_list)
                 .collect();
-            let occurrences = expand_recurrence(start, end, all_day, &rrule, &exclude, &extra);
-            if occurrences.is_empty() {
-                // Unsupported rule: keep just the base occurrence.
-                Ok(vec![mk(uid.clone(), start, end)])
-            } else {
-                Ok(occurrences
+            match expand_recurrence(start, end, all_day, &rrule, &exclude, &extra) {
+                Ok(occurrences) => occurrences
                     .into_iter()
                     .enumerate()
                     .map(|(i, (s, e))| mk(format!("{}#{}", uid, i), s, e))
-                    .collect())
+                    .collect(),
+                Err(reason) => {
+                    warnings.push(format!(
+                        "RRULE '{}' on event '{}' is unsupported ({}); keeping a single occurrence",
+                        rrule, uid, reason
+                    ));
+                    vec![mk(uid, start, end)]
+                }
             }
         }
-        _ => Ok(vec![mk(uid.clone(), start, end)]),
+        _ => vec![mk(uid, start, end)],
     }
 }
 

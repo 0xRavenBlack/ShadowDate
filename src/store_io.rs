@@ -13,8 +13,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Write `data` to `path` atomically: write to a temp file in the same
-/// directory, then rename over the target. A concurrent reader (like the
-/// background `shadowdate-service`) can never observe a partially-written file.
+/// directory, sync it, then rename over the target. A concurrent reader (like
+/// the background `shadowdate-service`) can never observe a partially-written
+/// file, and a power loss after the rename cannot leave an empty or truncated
+/// store on filesystems that need the file (and directory) to be synced.
 ///
 /// The temp name carries a unique pid + timestamp suffix, so concurrent writers
 /// never clobber each other's in-flight file. A stale temp left by a crash
@@ -22,18 +24,40 @@ use std::path::{Path, PathBuf};
 /// is best-effort removed if the write or rename fails.
 pub fn write_atomic(path: &Path, data: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).ok();
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("creating directory {}", parent.display()))?;
+        }
     }
     let tmp = temp_path(path);
     if let Err(e) = fs::write(&tmp, data) {
         fs::remove_file(&tmp).ok();
         return Err(e).with_context(|| format!("writing {}", tmp.display()));
     }
+    if let Err(e) = sync_path(&tmp) {
+        fs::remove_file(&tmp).ok();
+        return Err(e).with_context(|| format!("syncing {}", tmp.display()));
+    }
     if let Err(e) = fs::rename(&tmp, path) {
         fs::remove_file(&tmp).ok();
         return Err(e).with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()));
     }
+    // Durably commit the rename so a power loss right after save cannot revert
+    // the store to a missing/empty file. Best-effort: some filesystems reject
+    // syncing a directory handle.
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Ok(dir) = fs::File::open(parent) {
+                dir.sync_all().ok();
+            }
+        }
+    }
     Ok(())
+}
+
+/// Flush `p`'s contents to disk (fsync) so the following rename is durable.
+fn sync_path(p: &Path) -> std::io::Result<()> {
+    fs::File::open(p)?.sync_all()
 }
 
 /// A unique temp-file name next to `path` (same directory, so the rename stays

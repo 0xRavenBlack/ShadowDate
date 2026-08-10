@@ -21,6 +21,7 @@ use chrono::Local;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fs;
+use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 
@@ -72,20 +73,13 @@ fn main() -> glib::ExitCode {
 }
 
 fn setup(conn: &gio::DBusConnection) -> anyhow::Result<()> {
-    let proxy = gio::DBusProxy::new_sync(
-        conn,
-        gio::DBusProxyFlags::NONE,
-        None,
-        Some("org.freedesktop.Notifications"),
-        "/org/freedesktop/Notifications",
-        "org.freedesktop.Notifications",
-        None::<&gio::Cancellable>,
-    )?;
+    let proxy = service::notification_proxy_on(conn)?;
     let state = Rc::new(RefCell::new(Daemon {
         proxy,
         store: Store::new(),
         fired: HashSet::new(),
         ics_mtime: None,
+        ics_warned_mtime: None,
         config: ServiceConfig::default(),
         cfg_mtime: None,
     }));
@@ -101,6 +95,7 @@ struct Daemon {
     store: Store,
     fired: HashSet<String>,
     ics_mtime: Option<SystemTime>,
+    ics_warned_mtime: Option<SystemTime>,
     config: ServiceConfig,
     cfg_mtime: Option<SystemTime>,
 }
@@ -151,28 +146,42 @@ fn reload_config(d: &mut Daemon) {
 /// Reload the store whenever the `.ics` file changes. A torn/parse-error file
 /// keeps the last good store (atomic app saves make this rare); a deleted file
 /// keeps the last known store so a transient remove/recreate cycle doesn't
-/// trigger stale reminders.
+/// trigger stale reminders. The change marker (`ics_mtime`) is only advanced
+/// when a reload fully succeeds, so a bad file is retried on every tick instead
+/// of permanently diverging the daemon from the on-disk truth. The warning is
+/// printed once per offending mtime, not once per tick.
 fn reload_store(d: &mut Daemon) {
     let path = paths::data_path();
     let mtime = fs::metadata(&path).ok().and_then(|m| m.modified().ok());
     if mtime == d.ics_mtime {
         return;
     }
-    d.ics_mtime = mtime;
     if mtime.is_none() {
+        d.ics_mtime = None;
+        d.ics_warned_mtime = None;
         return;
     }
     match ical_import::import_ics_with_warnings(&path) {
-        Ok((store, warnings)) if warnings.is_empty() => d.store = store,
-        Ok((_, warnings)) => eprintln!(
-            "warning: reloading {} (keeping previous store): {} entries skipped",
-            path.display(),
-            warnings.len()
-        ),
-        Err(e) => eprintln!(
-            "warning: reloading {} (keeping previous store): {}",
-            path.display(),
-            e
-        ),
+        Ok((store, warnings)) if warnings.is_empty() => {
+            d.store = store;
+            d.ics_mtime = mtime;
+            d.ics_warned_mtime = None;
+        }
+        Ok((_, warnings)) => warn_reload(&mut *d, &path, mtime, &format!("{} entries skipped", warnings.len())),
+        Err(e) => warn_reload(&mut *d, &path, mtime, &e.to_string()),
     }
+}
+
+/// Log a reload failure once per offending mtime, leaving `ics_mtime` untouched
+/// so the reload is retried on the next tick.
+fn warn_reload(d: &mut Daemon, path: &Path, mtime: Option<SystemTime>, detail: &str) {
+    if d.ics_warned_mtime == mtime {
+        return;
+    }
+    eprintln!(
+        "warning: reloading {} (keeping previous store, will retry): {}",
+        path.display(),
+        detail
+    );
+    d.ics_warned_mtime = mtime;
 }

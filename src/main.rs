@@ -51,6 +51,11 @@ fn main() -> gtk::glib::ExitCode {
 /// `/proc` pre-check is the app's only single-instance guard. The second
 /// process exits right away (with a nonzero code, since a launch was denied),
 /// before any window or GTK work happens.
+///
+/// The `/proc` scan is a TOCTOU race: two near-simultaneous launches can both
+/// pass the check before either appears in `/proc`, and a second window would
+/// then be created. This is accepted for a single-user desktop app; the
+/// check-and-launch gap is a few milliseconds in practice.
 fn bail_if_already_running() {
     if another_instance_running() {
         eprintln!("shadowdate: another instance is already running; quitting");
@@ -113,8 +118,14 @@ fn load_css() {
     let provider = gtk::CssProvider::new();
     let css = include_str!("../resources/style.css");
     provider.load_from_data(css);
+    // Headless launches (e.g. running under a CI harness) have no display; fail
+    // gracefully instead of panicking in a GTK startup callback.
+    let Some(display) = gtk::gdk::Display::default() else {
+        eprintln!("shadowdate: no display available; styling skipped");
+        return;
+    };
     gtk::style_context_add_provider_for_display(
-        &gtk::gdk::Display::default().expect("no display"),
+        &display,
         &provider,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
@@ -141,10 +152,15 @@ fn header_button(label: &str, icon: &str) -> Button {
 /// live here as methods, which also breaks the old
 /// `Rc<RefCell<Option<CalendarView>>>` cycle: the view calls back into the
 /// context, and the context reaches the view through the weak reference.
+///
+/// The window is held weakly: the window (via its headerbar closures) reaches
+/// the view, which reaches the context — a strong window reference here would
+/// form a cycle that leaks until process exit. The application owns the window
+/// for its whole lifetime, so the upgrade always succeeds while the app runs.
 struct AppContext {
     store: Rc<RefCell<Store>>,
     path: PathBuf,
-    window: ApplicationWindow,
+    window: glib::WeakRef<ApplicationWindow>,
     view: RefCell<Weak<CalendarView>>,
 }
 
@@ -153,7 +169,7 @@ impl AppContext {
         Rc::new(Self {
             store,
             path,
-            window,
+            window: window.downgrade(),
             view: RefCell::new(Weak::new()),
         })
     }
@@ -173,7 +189,9 @@ impl AppContext {
     /// finished so a failed save still shows the last good state on disk.
     fn commit(&self) {
         if let Err(e) = save_store(&self.store.borrow(), &self.path) {
-            show_error(&self.window, &e.to_string());
+            if let Some(window) = self.window.upgrade() {
+                show_error(&window, &e.to_string());
+            }
         }
         if let Some(view) = self.view.borrow().upgrade() {
             view.refresh();
@@ -189,9 +207,12 @@ impl AppContext {
         let ctx = self.clone();
         let ctx_delete = ctx.clone();
         let series_uid_delete = series_uid.clone();
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
         run_appointment_dialog(
-            &self.window,
-            appt.start.date_naive(),
+            &window,
+            appt.date(),
             Some(&existing),
             std::boxed::Box::new(move |result| {
                 if let Some(result) = result {
@@ -212,8 +233,11 @@ impl AppContext {
     /// Open the new-appointment dialog for a day.
     fn open_new(self: &Rc<Self>, date: chrono::NaiveDate) {
         let ctx = self.clone();
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
         run_appointment_dialog(
-            &self.window,
+            &window,
             date,
             None,
             std::boxed::Box::new(move |result| {
@@ -267,7 +291,6 @@ fn build_ui(app: &Application) {
     // Floating, fixed-size, non-resizable, non-maximizable on Wayland/Hyprland.
     window.set_decorated(true);
     window.set_resizable(false);
-    window.set_default_size(1024, 560);
     window.set_hide_on_close(false);
 
     let ctx = AppContext::new(store, path, window.clone());
@@ -305,7 +328,10 @@ fn build_header(window: &ApplicationWindow, cv: &Rc<CalendarView>) -> (HeaderBar
     brand_label.add_css_class("brand-title");
     brand.append(&brand_label);
     header.pack_start(&brand);
-    header.set_title_widget(Some(&gtk::Label::new(None)));
+    // An empty title widget keeps the headerbar from reserving space for the
+    // title, leaving the brand + nav + actions to fill the bar.
+    let title_widget = gtk::Label::new(None);
+    header.set_title_widget(Some(&title_widget));
 
     let nav_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     nav_box.append(&cv.prev_btn);
@@ -352,9 +378,12 @@ fn build_header(window: &ApplicationWindow, cv: &Rc<CalendarView>) -> (HeaderBar
 fn setup_import(ctx: &Rc<AppContext>, import_btn: &Button) {
     let ctx = ctx.clone();
     import_btn.connect_clicked(move |_| {
+        let Some(window) = ctx.window.upgrade() else {
+            return;
+        };
         let dlg = FileChooserDialog::new(
             Some(i18n::t("import_ics")),
-            Some(&ctx.window),
+            Some(&window),
             FileChooserAction::Open,
             &[
                 (i18n::t("open"), gtk::ResponseType::Accept),
@@ -374,17 +403,23 @@ fn setup_import(ctx: &Rc<AppContext>, import_btn: &Button) {
                                 merge_store(&mut ctx.store.borrow_mut(), imported);
                                 ctx.commit();
                                 if !warnings.is_empty() {
-                                    show_warning(
-                                        &ctx.window,
-                                        &format!(
-                                            "{}\n\n{}",
-                                            i18n::t("import_warnings"),
-                                            warnings.join("\n")
-                                        ),
-                                    );
+                                    if let Some(window) = ctx.window.upgrade() {
+                                        show_warning(
+                                            &window,
+                                            &format!(
+                                                "{}\n\n{}",
+                                                i18n::t("import_warnings"),
+                                                warnings.join("\n")
+                                            ),
+                                        );
+                                    }
                                 }
                             }
-                            Err(e) => show_error(&ctx.window, &e.to_string()),
+                            Err(e) => {
+                                if let Some(window) = ctx.window.upgrade() {
+                                    show_error(&window, &e.to_string());
+                                }
+                            }
                         }
                     }
                 }
@@ -398,9 +433,12 @@ fn setup_import(ctx: &Rc<AppContext>, import_btn: &Button) {
 fn setup_export(ctx: &Rc<AppContext>, export_btn: &Button) {
     let ctx = ctx.clone();
     export_btn.connect_clicked(move |_| {
+        let Some(window) = ctx.window.upgrade() else {
+            return;
+        };
         let dlg = FileChooserDialog::new(
             Some(i18n::t("export_ics")),
-            Some(&ctx.window),
+            Some(&window),
             FileChooserAction::Save,
             &[
                 (i18n::t("save"), gtk::ResponseType::Accept),
@@ -417,7 +455,9 @@ fn setup_export(ctx: &Rc<AppContext>, export_btn: &Button) {
                 if let Some(file) = dlg.file() {
                     if let Some(p) = file.path() {
                         if let Err(e) = export_ics(&ctx.store.borrow(), &p, PRODID) {
-                            show_error(&ctx.window, &e.to_string());
+                            if let Some(window) = ctx.window.upgrade() {
+                                show_error(&window, &e.to_string());
+                            }
                         }
                     }
                 }
