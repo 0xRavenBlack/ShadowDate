@@ -80,13 +80,12 @@ impl CalendarView {
         grid.set_column_spacing(4);
         grid.set_row_spacing(4);
         grid.set_column_homogeneous(true);
-        grid.set_row_homogeneous(true);
         grid.add_css_class("calendar-grid");
-        grid.set_halign(gtk::Align::Fill);
-        // Fill the viewport so the 7 rows share the available height evenly;
-        // cells are compact by construction and never drive the grid taller.
-        grid.set_valign(gtk::Align::Fill);
-        grid.set_vexpand(true);
+        // Cells are a fixed 100x60, so the grid takes its natural size instead
+        // of stretching to fill the window; day rows stay uniform via each
+        // cell's minimum, while the weekday header row keeps its compact height.
+        grid.set_halign(gtk::Align::Start);
+        grid.set_valign(gtk::Align::Start);
         let grid_scroll = ScrolledWindow::builder()
             .child(&grid)
             .hexpand(true)
@@ -420,6 +419,9 @@ fn build_cell(
 ) -> Box {
     let cell = Box::new(gtk::Orientation::Vertical, 2);
     cell.add_css_class("day-cell");
+    // Fixed 100x60 footprint: the number plus both dot rows always fit, and the
+    // uniform size keeps every cell (and the rows they share) perfectly aligned.
+    cell.set_size_request(100, 60);
     cell.set_valign(gtk::Align::Fill);
     if other_month {
         cell.add_css_class("other-month");
@@ -442,29 +444,52 @@ fn build_cell(
     }
     cell.append(&num);
 
-    // Compact colored dots: one per appointment, capped so the cell keeps a
-    // fixed footprint no matter how full the day is. Full details stay in the
-    // hover tooltip below.
-    if !appts.is_empty() {
-        let dot_row = Box::new(gtk::Orientation::Horizontal, 2);
-        dot_row.add_css_class("dot-row");
-        dot_row.set_halign(gtk::Align::Center);
-        for a in appts.iter().take(5) {
-            let dot = Label::new(Some(if a.all_day { "○" } else { "●" }));
-            dot.add_css_class("appt-dot");
-            dot.add_css_class(&format!("c{}", a.color_index % 6));
-            if a.all_day {
-                dot.add_css_class("all-day");
-            }
-            dot_row.append(&dot);
-        }
-        if appts.len() > 5 {
-            let more = Label::new(Some(&shadowdate::i18n::more_compact(appts.len() - 5)));
-            more.add_css_class("dot-count");
-            dot_row.append(&more);
-        }
-        cell.append(&dot_row);
+    // Two dot rows with fixed heights, both always present so their slots are
+    // pinned: the small dots for timed events on top, and a separate row of
+    // slightly larger dots for all-day events on the bottom. Each row keeps its
+    // exact height (13px / 15px) even when empty, so the all-day row is always
+    // the bottom row of the cell — on days with only all-day events the empty
+    // timed slot still holds the top row open. Each row is capped (5 / 4 dots)
+    // so the cell keeps its fixed footprint no matter how full the day is; both
+    // rows use line-height 1 so they never grow. Full details stay in the hover
+    // tooltip below.
+    let timed: Vec<&Appointment> = appts.iter().copied().filter(|a| !a.all_day).collect();
+    let allday: Vec<&Appointment> = appts.iter().copied().filter(|a| a.all_day).collect();
+
+    let dot_row = Box::new(gtk::Orientation::Horizontal, 2);
+    dot_row.add_css_class("dot-row");
+    dot_row.set_size_request(0, 13);
+    dot_row.set_halign(gtk::Align::Center);
+    for a in timed.iter().take(5) {
+        let dot = Label::new(Some("●"));
+        dot.add_css_class("appt-dot");
+        dot.add_css_class(&format!("c{}", a.color_index % 6));
+        dot_row.append(&dot);
     }
+    if timed.len() > 5 {
+        let more = Label::new(Some(&shadowdate::i18n::more_compact(timed.len() - 5)));
+        more.add_css_class("dot-count");
+        dot_row.append(&more);
+    }
+    cell.append(&dot_row);
+
+    let ad_row = Box::new(gtk::Orientation::Horizontal, 2);
+    ad_row.add_css_class("dot-row");
+    ad_row.add_css_class("allday-row");
+    ad_row.set_size_request(0, 15);
+    ad_row.set_halign(gtk::Align::Center);
+    for a in allday.iter().take(4) {
+        let dot = Label::new(Some("●"));
+        dot.add_css_class("allday-dot");
+        dot.add_css_class(&format!("c{}", a.color_index % 6));
+        ad_row.append(&dot);
+    }
+    if allday.len() > 4 {
+        let more = Label::new(Some("+"));
+        more.add_css_class("dot-count");
+        ad_row.append(&more);
+    }
+    cell.append(&ad_row);
 
     if !appts.is_empty() {
         let detail: Vec<String> = appts

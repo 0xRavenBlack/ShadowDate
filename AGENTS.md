@@ -119,17 +119,27 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   the config, default `true`) toggled from the ⚙️ dialog; hiding it calls
   `CalendarView::set_portrait_visible(false)` (the widget stays in the overlay so
   layout is unaffected).
-- **Month grid cells**: the `Grid` is `column_homogeneous` / `row_homogeneous`
-  and always renders a solid 6×7 frame: days from the previous/next month fill
-  the first/last rows and are dimmed (`.day-cell.other-month`), so the grid never
-  looks ragged. Each cell keeps a fixed footprint — the day number is pinned to
-  the top (so numbers align across every row) with up to 5 small colored dots
-  below (one per appointment; `●` timed, `○` all-day, colored by `c0..c5`). Days
-  with more than 5 appointments show a compact `+N` count. Cells never resize
-  with appointment count or title length; a **hover tooltip** on the cell lists
-  every appointment's time, title, location, and description in full. The grid
-  scroller is focusable and the grid scrolls only if the window were ever shrunk
-  below natural size.
+- **Month grid cells**: the `Grid` is `column_homogeneous` and always renders a
+  solid 6×7 frame: days from the previous/next month fill the first/last rows and
+  are dimmed (`.day-cell.other-month`), so the grid never looks ragged. Every
+  cell is a **fixed 100×60** widget (`set_size_request(100, 60)`, `.day-cell`
+  uses `padding: 5px` so the content fits exactly); the grid takes its natural
+  size (no `vexpand`/`Fill`, `halign`/`valign` = `Start`) so the fixed footprint
+  is preserved, and day rows stay uniform while the weekday header row keeps its
+  compact height. Each cell always reserves **two dot rows with fixed heights**
+  (13px timed row on top, 15px all-day row on the bottom, both `set_size_request`)
+  so their slots are pinned: a top row of up to 5 small `●` dots for timed events
+  (a compact `+N` count when there are more) and a bottom row of up to 4 slightly
+  larger `●` dots (`.allday-dot`, plain `+` after the 4th) for all-day events.
+  Both rows are always present — an empty row is invisible but keeps its exact
+  height, so the all-day row stays pinned to the bottom even when a day has no
+  timed events. All-day
+  dots are solid (no hollow dot) and share a color per `series_uid`, so every day
+  of a multi-day all-day event shows the same color. Cells never resize with
+  appointment count or title length; a **hover tooltip** on the cell lists every
+  appointment's time, title, location, and description in full. The grid scroller
+  is focusable and the grid scrolls only if the window were ever shrunk below
+  natural size.
 - **Keyboard navigation**: the grid scroller is focusable and holds the
   `EventControllerKey`s: Arrow keys move the selection by ±1 day / ±7 days
   (crossing month boundaries navigates the view), and Enter/Space opens the

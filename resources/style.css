@@ -120,8 +120,10 @@ button.exit-button:hover {
     background-color: rgba(40, 40, 62, 0.85);
     border: 1px solid rgba(84, 84, 122, 0.95);
     border-radius: 10px;
-    padding: 6px;
-    min-height: 38px;
+    /* 4px vertical padding lets the day number + both fixed-height dot rows fit
+       the cell's fixed 100x60 footprint (set in code) with room to spare, so
+       even .today's 2px border cannot push a cell past 60px. */
+    padding: 4px;
     color: #f0f0fa;
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
@@ -151,13 +153,15 @@ button.exit-button:hover {
     color: #8a8aa8;
 }
 
-.day-cell.other-month .appt-dot {
+.day-cell.other-month .appt-dot,
+.day-cell.other-month .allday-dot {
     opacity: 0.55;
 }
 
 .day-number {
     font-weight: 600;
     font-size: 15px;
+    line-height: 1;
     color: #e6e6f0;
 }
 
@@ -178,10 +182,11 @@ button.exit-button:hover {
     color: #f5e6a0;
 }
 
-/* Appointment dots: compact colored indicators inside day cells */
-.dot-row {
-    margin-top: 1px;
-}
+/* Appointment dots: compact colored indicators inside day cells.
+   Timed events use small dots (.appt-dot); all-day events use a separate
+   row of slightly larger dots (.allday-dot) below. Both rows get a fixed
+   height (13px / 15px) from set_size_request so an empty row still holds
+   its slot open — the all-day row is always the bottom row of the cell. */
 
 .appt-dot {
     font-size: 10px;
@@ -190,16 +195,25 @@ button.exit-button:hover {
     margin: 0;
 }
 
-.appt-dot.all-day {
-    opacity: 0.8;
+.allday-dot {
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+    margin: 0;
 }
 
-.appt-dot.c0 { color: #b39ddb; } /* lavender */
-.appt-dot.c1 { color: #a0e7c0; } /* mint */
-.appt-dot.c2 { color: #f6c79b; } /* peach */
-.appt-dot.c3 { color: #f4a3c0; } /* pink */
-.appt-dot.c4 { color: #a7c7e7; } /* sky */
-.appt-dot.c5 { color: #c7b6e8; } /* lilac */
+.appt-dot.c0,
+.allday-dot.c0 { color: #b39ddb; } /* lavender */
+.appt-dot.c1,
+.allday-dot.c1 { color: #a0e7c0; } /* mint */
+.appt-dot.c2,
+.allday-dot.c2 { color: #f6c79b; } /* peach */
+.appt-dot.c3,
+.allday-dot.c3 { color: #f4a3c0; } /* pink */
+.appt-dot.c4,
+.allday-dot.c4 { color: #a7c7e7; } /* sky */
+.appt-dot.c5,
+.allday-dot.c5 { color: #c7b6e8; } /* lilac */
 
 .dot-count {
     font-size: 10px;
