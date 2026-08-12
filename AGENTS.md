@@ -86,20 +86,28 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
 ## Key architecture decisions
 
 - **Window**: `ApplicationWindow`, decorated, **non-resizable, non-maximizable**,
-  fixed at **1024×560**. App ID = `0xravenblack.shadowdata` (also used as the icon
-  name via `gtk::Window::set_default_icon_name` and the desktop `Icon=`/window class).
-  Floating on Hyprland is enforced by `windowrule` in `~/.config/hypr/hyprland.conf`:
+  fixed at **1024×560**. The window's Wayland `app_id` / X11 WM_CLASS is pinned to
+  `0xravenblack.shadowdata` by calling `glib::set_prgname(APP_ID)` **before GTK
+  initializes** (the GtkApplication is built with **no** application id, so GDK
+  falls back to prgname for the class). The same constant is the icon name via
+  `gtk::Window::set_default_icon_name` and the desktop `Icon=`/`StartupWMClass`.
+  Floating on Hyprland is enforced by `windowrule` in
+  `~/.config/hypr/hyprland.conf`:
   `windowrule = float, class:(0xravenblack.shadowdata)` and
   `windowrule = size 1024 560, class:(0xravenblack.shadowdata)`.
+  Verify at runtime with `hyprctl clients` (the class must read
+  `0xravenblack.shadowdata`).
 - **Close button**: default title-buttons hidden (`set_show_title_buttons(false)`);
   a textual **"Exit"** button (`.exit-button` dark red CSS) closes the window.
-- **Single instance**: `main()` first runs a `/proc` pre-check
-  (`bail_if_already_running`) that quits a second `shadowdate` process before GTK
-  starts — it scans `/proc/*/comm` for a `shadowdate` process owned by the same
-  effective UID, skipping zombies. This is the app's **only** single-instance
-  guard: `APP_ID` starts with a digit, so it is not a valid GApplication id and
-  the `gtk::Application`'s session-bus registration never engages (a second
-  process would otherwise build a second window). The `shadowdate-service`
+- **Single instance**: `main()` first acquires an exclusive advisory
+  `flock` on `paths::lock_path()` (`$XDG_RUNTIME_DIR/shadowdate.lock`) and holds
+  it for the whole run via `acquire_single_instance_lock()`. A second launch
+  fails to acquire it (kernel-atomic — no TOCTOU window), prints a clear message,
+  and exits with status 1 before any GTK work. The lock dies with the process, so
+  a crash leaves no stale lock. This is the app's **only** single-instance guard:
+  `APP_ID` starts with a digit, so it is not a valid GApplication id and the
+  `gtk::Application`'s session-bus registration never engages (a second process
+  would otherwise build a second window). The `shadowdate-service`
   daemon guards itself separately via its D-Bus name (`SERVICE_NAME`,
   `DO_NOT_QUEUE`).
 - **Branding**: the `logo.svg` is embedded (`include_bytes!`, rasterized with `resvg`)
@@ -168,7 +176,10 @@ PKGBUILD / .SRCINFO     # AUR package: the package is just the PKGBUILD — ever
   (falls back to `$HOME/.local/share/calendar/calendar.ics`, then
   `std::env::temp_dir()`). The Export dialog defaults to `shadowdate.ics`. Editing or
   deleting an occurrence acts on the **whole series** (`series_uid`); editing replaces
-  the series with the single submitted (now non-recurring) appointment.
+  the series with the single submitted (now non-recurring) appointment. When the series
+  has more than one occurrence, the edit form and the delete confirmation warn the user
+  about the series-wide effect (`.series-warning`, `series_edit_warning` /
+  `series_delete_body`).
 - **Reminder service**: `src/service.rs` holds the pure scheduling logic
   (`reminder_time`, `pending_reminders`, `prune_fired`, `fired_key`) and the
   D-Bus plumbing (`notification_proxy`, `notify` via the freedesktop

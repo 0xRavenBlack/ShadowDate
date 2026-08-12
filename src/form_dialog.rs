@@ -10,6 +10,9 @@ use gtk::{
 /// Show a form dialog to create or edit an appointment.
 /// `initial_date` is used when creating a new appointment.
 /// `existing` is Some when editing.
+/// `series_count` is the number of store occurrences sharing the appointment's
+/// `series_uid` (> 1 means editing/deleting acts on the whole series, which the
+/// form must warn about).
 /// The chosen appointment (or None if cancelled) is delivered via `on_result`.
 /// `on_delete`, if provided, is invoked when the user deletes an existing
 /// appointment (only shown when `existing` is Some).
@@ -17,6 +20,7 @@ pub fn run_appointment_dialog(
     parent: &impl IsA<gtk::Window>,
     initial_date: NaiveDate,
     existing: Option<&Appointment>,
+    series_count: usize,
     on_result: std::boxed::Box<dyn Fn(Option<Appointment>) + 'static>,
     on_delete: Option<std::boxed::Box<dyn Fn() + 'static>>,
 ) {
@@ -110,6 +114,20 @@ pub fn run_appointment_dialog(
     heading.add_css_class("form-heading");
     heading.set_xalign(0.0);
     form.append(&heading);
+
+    // Editing or deleting one occurrence collapses/removes the whole series
+    // (the app stores RRULE-expanded occurrences sharing a `series_uid`). Warn
+    // the user up front so the action is not a silent surprise.
+    if existing.is_some() && series_count > 1 {
+        let warn = Label::new(Some(
+            &shadowdate::i18n::t("series_edit_warning")
+                .replace("{n}", &series_count.to_string()),
+        ));
+        warn.add_css_class("series-warning");
+        warn.set_xalign(0.0);
+        warn.set_wrap(true);
+        form.append(&warn);
+    }
 
     let details = section_box();
     details.append(&row_widget(shadowdate::i18n::t("title"), &title_entry));
@@ -218,7 +236,13 @@ pub fn run_appointment_dialog(
                 ButtonsType::None,
                 shadowdate::i18n::t("confirm_delete_title"),
             );
-            confirm.set_secondary_text(Some(shadowdate::i18n::t("confirm_delete_body")));
+            let confirm_body = if series_count > 1 {
+                shadowdate::i18n::t("series_delete_body")
+                    .replace("{n}", &series_count.to_string())
+            } else {
+                shadowdate::i18n::t("confirm_delete_body").to_string()
+            };
+            confirm.set_secondary_text(Some(&confirm_body));
             confirm.add_button(shadowdate::i18n::t("cancel"), ResponseType::Cancel);
             let del_resp = confirm.add_button(shadowdate::i18n::t("delete"), ResponseType::Accept);
             del_resp.add_css_class("delete-button");

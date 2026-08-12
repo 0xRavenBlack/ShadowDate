@@ -316,6 +316,16 @@ button.exit-button:hover {
     padding: 14px;
 }
 
+.series-warning {
+    background-color: #3a2630;
+    border: 1px solid #b23a4d;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #f6c79b;
+    font-size: 12px;
+    font-weight: 600;
+}
+
 .form-label {
     color: #b8b8d0;
     font-size: 13px;

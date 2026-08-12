@@ -95,6 +95,7 @@ fn fold_line(line: &str) -> String {
         let mut cut = width;
         while cut > 0
             && (cut >= rest.len()
+                || !rest.is_char_boundary(cut)
                 || rest[..cut].ends_with(' ')
                 || rest[cut..].starts_with(' '))
         {
@@ -102,15 +103,21 @@ fn fold_line(line: &str) -> String {
         }
         if cut == 0 {
             // Pathological input (e.g. an over-long run of spaces): no mid-word
-            // spot exists, so split at the width anyway.
+            // spot exists, so split at the width anyway, backing off to the
+            // nearest UTF-8 boundary so the slice below never panics.
             cut = width;
-        }
-        // Never split a UTF-8 sequence.
-        while cut > 0 && !rest.is_char_boundary(cut) {
-            cut -= 1;
+            while cut > 0 && !rest.is_char_boundary(cut) {
+                cut -= 1;
+            }
         }
         if cut == 0 {
-            cut = 1; // a single codepoint, well below the 75-octet limit
+            // The first codepoint is itself multi-byte (a CJK ideograph, say):
+            // emit exactly one codepoint, well below the 75-octet limit.
+            cut = rest
+                .char_indices()
+                .nth(1)
+                .map(|(i, _)| i)
+                .unwrap_or(rest.len());
         }
         out.push_str(&rest[..cut]);
         out.push_str("\r\n ");

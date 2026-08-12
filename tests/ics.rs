@@ -452,6 +452,38 @@ fn long_text_survives_line_folding_roundtrip() {
 }
 
 #[test]
+fn cjk_text_survives_line_folding_roundtrip() {
+    // Multi-byte UTF-8 must fold on a char boundary: a CJK SUMMARY (3 bytes per
+    // codepoint) long enough to exceed 75 octets used to panic when byte 75
+    // landed mid-codepoint, aborting the whole process on save/export.
+    let cjk_title = "日本語の長い会議のタイトルが七十五バイトの行折り返し限界を超えてしまった場合の試験".to_string();
+    let cjk_desc = "こちらは説明文です。十分に長い本文を使って、継続行の七十四バイト折り返しでも文字境界が守られることを確認します。".to_string();
+    assert!(cjk_title.len() > 75);
+    assert!(cjk_desc.len() > 75);
+    let mut store = Store::new();
+    store.insert(Appointment::build(NewAppointment {
+        uid: "fold-cjk-1".to_string(),
+        series_uid: "fold-cjk-1".to_string(),
+        title: cjk_title.clone(),
+        description: cjk_desc.clone(),
+        location: String::new(),
+        start: make_datetime(d(2026, 8, 5), 9, 30),
+        end: make_datetime(d(2026, 8, 5), 10, 0),
+        all_day: false,
+    }));
+    let path = tmp("cal_test_fold_cjk.ics");
+    save_store(&store, &path).unwrap();
+    let raw = std::fs::read_to_string(&path).unwrap();
+    for line in raw.split("\r\n") {
+        assert!(line.len() <= 75, "unfolded line too long: {:?}", line);
+    }
+    let loaded = import(&path);
+    assert_eq!(loaded.items()[0].title, cjk_title);
+    assert_eq!(loaded.items()[0].description, cjk_desc);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
 fn series_uid_survives_save_load() {
     // Expanded occurrences share a series_uid distinct from their own UID. That
     // grouping must survive a save -> load cycle so series-wide edit/delete

@@ -45,6 +45,21 @@ pub fn data_path() -> PathBuf {
     p
 }
 
+/// Single-instance lock file: `$XDG_RUNTIME_DIR/shadowdate.lock` (fallback:
+/// the data dir, then the temp dir). Held with an advisory `flock` for the app's
+/// whole lifetime; kernel locks die with the process, so no stale-lock cleanup
+/// is ever needed.
+pub fn lock_path() -> PathBuf {
+    if let Some(dir) = non_empty_env("XDG_RUNTIME_DIR") {
+        let mut p = PathBuf::from(dir);
+        p.push("shadowdate.lock");
+        return p;
+    }
+    let mut p = dirs_data().unwrap_or_else(std::env::temp_dir);
+    p.push("shadowdate.lock");
+    p
+}
+
 /// Service config file: `$XDG_CONFIG_HOME/shadowdate/service.toml`
 /// (fallback: `~/.config/shadowdate/service.toml`). Returns an empty path when
 /// neither XDG_CONFIG_HOME nor HOME is set, meaning "no config file".

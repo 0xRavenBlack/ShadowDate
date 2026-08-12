@@ -19,21 +19,33 @@ use gtk::{
     Application, ApplicationWindow, Button, FileChooserAction, FileChooserDialog, HeaderBar,
 };
 use std::cell::RefCell;
+use std::fs::File;
+use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use ui::{show_error, show_warning};
 
 fn main() -> gtk::glib::ExitCode {
-    bail_if_already_running();
-    let app = Application::builder().application_id(APP_ID).build();
+    // The window's Wayland app_id (and X11 WM_CLASS) is derived from prgname
+    // whenever the GtkApplication has no registered application id — which is
+    // always the case here (`APP_ID` is deliberately not a valid GApplication
+    // id, see below). Pin prgname to the brand identity BEFORE GTK initializes
+    // (GTK keeps an already-set prgname) so the Hyprland windowrules
+    // (`class:(0xravenblack.shadowdata)`) and the desktop entry's
+    // `StartupWMClass` actually match the running window.
+    glib::set_prgname(Some(APP_ID));
+    let _single_instance = acquire_single_instance_lock();
+    let app = Application::builder().build();
     app.connect_startup(|_| {
         load_css();
         gtk::Window::set_default_icon_name(APP_ID);
     });
-    // Single instance: a `/proc` pre-check above quits a second process before
-    // GTK is even up. Note that `APP_ID` starts with a digit, so it is not a
-    // valid GApplication id and the session-bus registration never engages —
-    // the pre-check is the app's only guard against a second window.
+    // Single instance: `APP_ID` starts with a digit, so it is not a valid
+    // GApplication id and the session-bus registration — and with it
+    // GApplication's own single-instance machinery — never engages. The
+    // `flock`-based lock acquired above is the app's only guard against a
+    // second window; the prgname set above determines the window class.
     app.connect_activate(|app| {
         if app.windows().is_empty() {
             build_ui(app);
@@ -44,73 +56,42 @@ fn main() -> gtk::glib::ExitCode {
     app.run()
 }
 
-/// Quit before GTK starts if another `shadowdate` process is already running.
+/// Acquire a process-lifetime exclusive lock on `paths::lock_path()`; the
+/// caller keeps the returned `File` alive until exit so the lock is held for
+/// the whole run. Returns `None` (proceeding without a guard) if the lock file
+/// cannot even be opened.
 ///
-/// `APP_ID` begins with a digit, so it is not a valid GApplication id and the
-/// `gtk::Application` in `main` never registers on the session bus — this
-/// `/proc` pre-check is the app's only single-instance guard. The second
-/// process exits right away (with a nonzero code, since a launch was denied),
-/// before any window or GTK work happens.
-///
-/// The `/proc` scan is a TOCTOU race: two near-simultaneous launches can both
-/// pass the check before either appears in `/proc`, and a second window would
-/// then be created. This is accepted for a single-user desktop app; the
-/// check-and-launch gap is a few milliseconds in practice.
-fn bail_if_already_running() {
-    if another_instance_running() {
-        eprintln!("shadowdate: another instance is already running; quitting");
-        std::process::exit(1);
-    }
-}
-
-/// True when a `shadowdate` process owned by this user is already alive.
-///
-/// Scans `/proc` for a process whose `comm` is exactly `shadowdate` (the
-/// `shadowdate-service` daemon's comm never matches), limited to the caller's
-/// effective UID so a second user's instance — with its own data dir — does
-/// not block this launch, and skipping zombies so a dead-but-unreaped process
-/// cannot brick startup.
-fn another_instance_running() -> bool {
-    let my_pid = std::process::id();
-    let my_uid = status_of(my_pid).map(|(uid, _)| uid);
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return false;
-    };
-    for entry in entries.flatten() {
-        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        if pid == my_pid {
-            continue;
+/// The lock replaces the old `/proc` scan: `flock` is atomic in the kernel, so
+/// two near-simultaneous launches can never both pass the check (no TOCTOU
+/// window) and a second launch quits with a clear message instead of silently
+/// doing nothing. A crashed first instance releases the lock automatically, so
+/// there are no stale-lock or zombie edge cases to handle.
+fn acquire_single_instance_lock() -> Option<File> {
+    let path = paths::lock_path();
+    let mut file = File::options()
+        .create(true)
+        .read(true)
+        .write(true)
+        // Never truncate on open: the pid is written only after the lock is
+        // actually won, so a contender must not clobber the winner's contents.
+        .truncate(false)
+        .open(&path)
+        .ok()?;
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if rc == 0 {
+        // First instance: record the pid for debugging / future IPC.
+        let _ = file.set_len(0);
+        let _ = file.write_all(format!("{}\n", std::process::id()).as_bytes());
+        Some(file)
+    } else {
+        let err = std::io::Error::last_os_error();
+        if err.kind() == std::io::ErrorKind::WouldBlock {
+            eprintln!("shadowdate: another instance is already running; quitting");
+            std::process::exit(1);
         }
-        let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
-            continue;
-        };
-        let Some((uid, state)) = status_of(pid) else {
-            continue;
-        };
-        if comm.trim() == "shadowdate" && my_uid == Some(uid) && state != 'Z' {
-            return true;
-        }
-    }
-    false
-}
-
-/// Effective UID and state char of `pid` from `/proc/<pid>/status`.
-fn status_of(pid: u32) -> Option<(u32, char)> {
-    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    let mut uid = None;
-    let mut state = None;
-    for line in status.lines() {
-        if let Some(rest) = line.strip_prefix("Uid:") {
-            uid = rest.split_whitespace().nth(1).and_then(|s| s.parse().ok());
-        } else if let Some(rest) = line.strip_prefix("State:") {
-            state = rest.split_whitespace().next().and_then(|s| s.chars().next());
-        }
-    }
-    match (uid, state) {
-        (Some(uid), Some(state)) => Some((uid, state)),
-        _ => None,
+        // Any other lock failure (e.g. no runtime dir): proceed best-effort
+        // rather than brick startup.
+        Some(file)
     }
 }
 
@@ -204,6 +185,13 @@ impl AppContext {
     fn open_edit(self: &Rc<Self>, appt: &Appointment) {
         let existing = appt.clone();
         let series_uid = existing.series_uid.clone();
+        let series_count = self
+            .store
+            .borrow()
+            .items()
+            .iter()
+            .filter(|a| a.series_uid == series_uid)
+            .count();
         let ctx = self.clone();
         let ctx_delete = ctx.clone();
         let series_uid_delete = series_uid.clone();
@@ -214,6 +202,7 @@ impl AppContext {
             &window,
             appt.date(),
             Some(&existing),
+            series_count,
             std::boxed::Box::new(move |result| {
                 if let Some(result) = result {
                     // Editing replaces the entire series with the single
@@ -240,6 +229,7 @@ impl AppContext {
             &window,
             date,
             None,
+            0,
             std::boxed::Box::new(move |result| {
                 if let Some(result) = result {
                     ctx.store.borrow_mut().insert(result);
@@ -258,7 +248,23 @@ fn build_ui(app: &Application) {
             if warnings.is_empty() {
                 (store, None)
             } else {
-                let msg = format!("{}\n\n{}", i18n::t("load_warnings"), warnings.join("\n"));
+                // A partially-corrupt file loads with warnings (the tolerant
+                // importer skips bad entries) rather than an error. Back the
+                // bytes up so the next save cannot silently drop the entries
+                // that failed to parse.
+                let msg = match backup_corrupt(&path) {
+                    Some(b) => format!(
+                        "{}\n\n{}\n\n{}",
+                        i18n::t("load_warnings_backed_up"),
+                        b.display(),
+                        warnings.join("\n")
+                    ),
+                    None => format!(
+                        "{}\n\n{}",
+                        i18n::t("load_warnings"),
+                        warnings.join("\n")
+                    ),
+                };
                 eprintln!("warning: loading {}: {}", path.display(), msg);
                 (store, Some(msg))
             }

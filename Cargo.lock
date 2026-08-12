@@ -1010,6 +1010,7 @@ dependencies = [
  "glib",
  "gtk4",
  "ical",
+ "libc",
  "resvg",
  "serde",
  "toml",
